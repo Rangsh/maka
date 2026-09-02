@@ -56,15 +56,7 @@ export class RuntimeHostTargetActivationError extends Error {
  */
 export function launchRuntimeHostTargetActivator(
   input: RuntimeHostTargetActivationInput,
-  options: {
-    readonly settlementTimeoutMs?: number;
-    /**
-     * Called after settle is sent and before the deadline starts. Tests wait
-     * here so a short timeout measures a hung settlement, not child-process
-     * startup.
-     */
-    readonly beforeSettlementTimeout?: () => Promise<void>;
-  } = {},
+  options: { readonly settlementTimeoutMs?: number } = {},
 ): Promise<RuntimeHostTargetActivation> {
   const args = [
     input.staged.cliPath,
@@ -113,20 +105,6 @@ export function launchRuntimeHostTargetActivator(
       if (settled) return;
       settled = true;
       let settlementTimedOut = false;
-      if (child.connected) {
-        try {
-          child.send({ kind: 'settle' });
-        } catch {
-          // The close result below remains the only settlement evidence.
-        }
-      }
-      try {
-        await options.beforeSettlementTimeout?.();
-      } catch (error) {
-        child.kill('SIGKILL');
-        await closed;
-        throw error;
-      }
       // This parent owns the activator process and therefore the hard bound.
       // Killing and then awaiting close releases its inherited lease even when
       // an individual authority read in the child never settles.
@@ -135,6 +113,13 @@ export function launchRuntimeHostTargetActivator(
         child.kill('SIGKILL');
       }, options.settlementTimeoutMs ?? TARGET_ACTIVATOR_SETTLEMENT_TIMEOUT_MS);
       settlementTimer.unref();
+      if (child.connected) {
+        try {
+          child.send({ kind: 'settle' });
+        } catch {
+          // The close result below remains the only settlement evidence.
+        }
+      }
       try {
         const exited = await closed;
         if (settlementTimedOut) {
