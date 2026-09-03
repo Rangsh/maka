@@ -104,10 +104,7 @@ describe('redactSecrets', () => {
         'fatal: unable to access https://deploy:s3cretP@ss@git.corp.example/x.git/: 403',
         'fatal: unable to access https://[redacted]@git.corp.example/x.git/: 403',
       ],
-      [
-        'https://user@host.example/team/repo.git',
-        'https://[redacted]@host.example/team/repo.git',
-      ],
+      ['https://user@host.example/team/repo.git', 'https://[redacted]@host.example/team/repo.git'],
       [
         'origin https://alice:hunter2@internal.example.com/repo.git (fetch)',
         'origin https://[redacted]@internal.example.com/repo.git (fetch)',

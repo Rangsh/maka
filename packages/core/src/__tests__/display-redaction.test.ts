@@ -42,10 +42,7 @@ const USERINFO_CASES: Array<[string, string]> = [
     'fatal: unable to access https://deploy:s3cretP@ss@git.corp.example/x.git/: 403',
     'fatal: unable to access https://<redacted>@git.corp.example/x.git/: 403',
   ],
-  [
-    'https://user@host.example/team/repo.git',
-    'https://<redacted>@host.example/team/repo.git',
-  ],
+  ['https://user@host.example/team/repo.git', 'https://<redacted>@host.example/team/repo.git'],
   [
     'origin https://alice:hunter2@internal.example.com/repo.git (fetch)',
     'origin https://<redacted>@internal.example.com/repo.git (fetch)',
@@ -91,10 +88,7 @@ describe('display streaming suffix redactors', () => {
     assert.equal(suffix.compactedSuffix, 'https://deploy:s3cretP@ss@');
     assert.equal(suffix.terminator.test('/'), true);
     assert.equal(suffix.terminator.test('?'), true);
-    assert.equal(
-      redactSecrets(suffix.settledPrefixText + suffix.compactedSuffix),
-      suffix.text,
-    );
+    assert.equal(redactSecrets(suffix.settledPrefixText + suffix.compactedSuffix), suffix.text);
   });
 
   test('does not treat a completed userinfo URL as a streaming suffix', () => {
