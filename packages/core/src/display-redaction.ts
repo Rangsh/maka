@@ -56,6 +56,17 @@ const PATTERNS: Pattern[] = [
     streamingTerminator: /[\s"'<>]/,
     streamingValueGroup: 3,
   },
+  // URL userinfo:  https://user:pass@host  /  https://token@host
+  // Structural — any authority that contains `@` is credential-bearing, so
+  // this does not depend on a provider prefix list. Runs before the query
+  // rule so only the userinfo is replaced and host/path survive.
+  {
+    label: 'url userinfo',
+    regex: /(https?:\/\/)([^/?#]*@)/gi,
+    replacement: (m) => `${m[1]}<redacted>@`,
+    streamingTerminator: /[/?#\s"'<>]/,
+    streamingValueGroup: 2,
+  },
   // URL query secrets:  ?key=[redacted]  ?token=[redacted]  ?api_key=[redacted]  &access_token=[redacted]
   // (runs before the api-key-header rule so the URL form isn't mangled.)
   {
