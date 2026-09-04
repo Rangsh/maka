@@ -112,7 +112,6 @@ import {
   hasActiveTurnAtSubmit,
   mergeWorkspaceReferences,
   rebaseWorkspaceFileReferences,
-  resolveFollowUpModeAtSubmit,
 } from './follow-up-submit-routing';
 import {
   PlanExecutionPanel,
@@ -1912,11 +1911,10 @@ function AppShellContent({
     const runningTurnIds = sessionId
       ? sessionsRef.current.find((session) => session.id === sessionId)?.runningTurnIds
       : undefined;
-    const followUpAtSubmit = resolveFollowUpModeAtSubmit({
-      requestedMode: metadata?.followUpMode,
-      hasActiveTurn: hasActiveTurnAtSubmit({ liveTurn, runningTurnIds }),
-      slashCommand,
-    });
+    const hasActiveTurn = hasActiveTurnAtSubmit({ liveTurn, runningTurnIds });
+    // Slash commands are not follow-up text for a live turn — dispatch them.
+    // Explicit Shift+Enter steer / queue still uses metadata.followUpMode.
+    const followUpAtSubmit = !slashCommand ? metadata?.followUpMode : undefined;
     if (sessionId && followUpAtSubmit) {
       const queued = await enqueueFollowUp(sessionId, text, followUpAtSubmit, {
         ...metadata,
@@ -1924,6 +1922,32 @@ function AppShellContent({
       });
       if (queued) delete retractedWorkspaceReferencesRef.current[sessionId];
       return queued;
+    }
+    // Plain Enter during a live turn: interrupt first, then fall through to a
+    // new root send so the typed message stops the runaway loop (#4083).
+    // Interrupt retracts any prior queue entries, so this must precede send.
+    // Host `turn.interrupt` awaits the cancelled turn's terminal fact before
+    // resolving, so the Session lane is free for the root send below — not
+    // merely "usually fast enough" relative to settlement.
+    if (sessionId && hasActiveTurn && !slashCommand) {
+      try {
+        const stopped = await window.maka.sessions.stop(sessionId, { source: 'stop_button' });
+        if (stopped?.kind === 'interrupted') {
+          for (const messageId of stopped.retractedMessageIds) {
+            removeTransientMessage(sessionId, messageId);
+          }
+        }
+      } catch (error) {
+        if (activeIdRef.current === sessionId) {
+          const copy = getDesktopConversationCopy(uiLocale).actions;
+          showSessionError(
+            sessionId,
+            copy.operationFailedTitle,
+            localizedShellErrorMessage(error, copy.operationFailedFallback, uiLocale),
+          );
+        }
+        return false;
+      }
     }
     if (
       revisionSend &&
