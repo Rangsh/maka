@@ -5587,10 +5587,7 @@ describe('AiSdkBackend model history', () => {
     const events = await drainDurably(backend.send(durable.input()), durable);
     assert.equal(loop.callCount(), 3);
     assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'step_limit');
-    assert.equal(
-      events.filter((event) => event.type === 'tool_start').length,
-      3,
-    );
+    assert.equal(events.filter((event) => event.type === 'tool_start').length, 3);
   });
 
   test('stops an unbounded loop when empty tool steps alternate between signatures', async () => {
@@ -5764,9 +5761,7 @@ describe('AiSdkBackend model history', () => {
     assert.ok(
       events.some(
         (event) =>
-          event.type === 'thinking_complete' &&
-          event.signature !== undefined &&
-          event.text === '',
+          event.type === 'thinking_complete' && event.signature !== undefined && event.text === '',
       ),
       'signature-only reasoning must still persist',
     );
