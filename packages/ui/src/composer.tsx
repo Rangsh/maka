@@ -308,7 +308,7 @@ export const Composer = forwardRef<
       text: string,
       metadata?: ComposerSendMetadata,
     ): boolean | void | Promise<boolean | void>;
-    onStop(): void | Promise<void>;
+    onStop(): boolean | void | Promise<boolean | void>;
     onPickAttachments?(): void | Promise<void>;
     onPickDirectory?(): void | Promise<void>;
     pendingDirectories?: readonly import('@maka/core/events').DirectoryReference[];
