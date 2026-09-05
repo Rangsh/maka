@@ -172,9 +172,11 @@ function redactJsonValue(value: unknown): { value: unknown; changed: boolean } {
 }
 
 function redactUrlUserinfoSecrets(value: string): string {
-  // Authority runs through the first `/`, `?`, or `#`. If it contains `@`,
-  // everything from the host-start through the last `@` is userinfo.
-  return value.replace(/(https?:\/\/)[^/?#]*@/gi, '$1[redacted]@');
+  // Authority runs through the first `/`, `?`, `#`, or whitespace. If it
+  // contains `@`, everything from the host-start through the last `@` is
+  // userinfo. Whitespace is excluded so a bare `https://host` followed later
+  // by an email/`@package` on the same or next line cannot swallow the gap.
+  return value.replace(/(https?:\/\/)[^\s/?#]*@/gi, '$1[redacted]@');
 }
 
 function redactUrlQuerySecrets(value: string): string {

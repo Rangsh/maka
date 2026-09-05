@@ -133,6 +133,15 @@ describe('redactSecrets', () => {
       redactSecrets('https://alice:hunter2@api.example.com/v1?token=abc123'),
       'https://[redacted]@api.example.com/v1?token=[redacted]',
     );
+    // Negatives: bare https://host must not swallow a later @ across spaces/newlines.
+    assert.equal(
+      redactSecrets('see https://example.com and mail bob@corp.com'),
+      'see https://example.com and mail bob@corp.com',
+    );
+    assert.equal(
+      redactSecrets('Fetching https://registry.example.com\nContact: support@example.com for help'),
+      'Fetching https://registry.example.com\nContact: support@example.com for help',
+    );
   });
 
   test('masks quoted sensitive object keys in serialized JSON', () => {

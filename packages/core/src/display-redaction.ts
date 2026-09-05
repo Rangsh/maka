@@ -60,9 +60,13 @@ const PATTERNS: Pattern[] = [
   // Structural — any authority that contains `@` is credential-bearing, so
   // this does not depend on a provider prefix list. Runs before the query
   // rule so only the userinfo is replaced and host/path survive.
+  // Character class matches streamingTerminator so a bare `https://host`
+  // cannot swallow later `@` across whitespace/quotes. Streaming cannot
+  // recognize userinfo before `@` arrives (`https://user:pa` stays clear
+  // until then); tightening earlier would eat `https://host:8080/`.
   {
     label: 'url userinfo',
-    regex: /(https?:\/\/)([^/?#]*@)/gi,
+    regex: /(https?:\/\/)([^\s"'<>/?#]*@)/gi,
     replacement: (m) => `${m[1]}<redacted>@`,
     streamingTerminator: /[/?#\s"'<>]/,
     streamingValueGroup: 2,
