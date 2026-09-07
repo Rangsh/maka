@@ -74,7 +74,7 @@ describe('display redactSecrets', () => {
       redactSecrets('https://alice:hunter2@api.example.com/v1?token=abc123'),
       'https://<redacted>@api.example.com/v1?token=<redacted>',
     );
-    // Negatives: bare https://host must not swallow a later @ across spaces/newlines.
+    // Negatives: bare https://host must not swallow a later @ across spaces/newlines/quotes.
     assert.equal(
       redactSecrets('see https://example.com and mail bob@corp.com'),
       'see https://example.com and mail bob@corp.com',
@@ -82,6 +82,10 @@ describe('display redactSecrets', () => {
     assert.equal(
       redactSecrets('Fetching https://registry.example.com\nContact: support@example.com for help'),
       'Fetching https://registry.example.com\nContact: support@example.com for help',
+    );
+    assert.equal(
+      redactSecrets('{"url":"https://example.com","contact":"me@corp.com"}'),
+      '{"url":"https://example.com","contact":"me@corp.com"}',
     );
   });
 });

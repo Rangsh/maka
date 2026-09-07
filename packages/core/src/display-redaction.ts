@@ -61,9 +61,12 @@ const PATTERNS: Pattern[] = [
   // this does not depend on a provider prefix list. Runs before the query
   // rule so only the userinfo is replaced and host/path survive.
   // Character class matches streamingTerminator so a bare `https://host`
-  // cannot swallow later `@` across whitespace/quotes. Streaming cannot
-  // recognize userinfo before `@` arrives (`https://user:pa` stays clear
-  // until then); tightening earlier would eat `https://host:8080/`.
+  // cannot swallow later `@` across whitespace/quotes/angle brackets.
+  // Known boundary: punctuation like commas can still join a bare URL to a
+  // later `@`; a proper fix would restrict userinfo to the RFC 3986 set.
+  // http(s) only for now. Streaming cannot recognize userinfo before `@`
+  // arrives (`https://user:pa` stays clear until then); tightening earlier
+  // would eat `https://host:8080/`.
   {
     label: 'url userinfo',
     regex: /(https?:\/\/)([^\s"'<>/?#]*@)/gi,
