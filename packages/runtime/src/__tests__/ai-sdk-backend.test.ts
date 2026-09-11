@@ -5586,7 +5586,7 @@ describe('AiSdkBackend model history', () => {
 
     const events = await drainDurably(backend.send(durable.input()), durable);
     assert.equal(loop.callCount(), 3);
-    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'step_limit');
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'empty_step_loop');
     assert.equal(events.filter((event) => event.type === 'tool_start').length, 3);
   });
 
@@ -5638,7 +5638,7 @@ describe('AiSdkBackend model history', () => {
 
     const events = await drainDurably(backend.send(durable.input()), durable);
     assert.equal(calls, 6);
-    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'step_limit');
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'empty_step_loop');
     assert.equal(events.filter((event) => event.type === 'tool_start').length, 6);
   });
 
@@ -5697,7 +5697,7 @@ describe('AiSdkBackend model history', () => {
 
     const events = await drainDurably(backend.send(durable.input()), durable);
     assert.equal(calls, 3);
-    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'step_limit');
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'empty_step_loop');
     assert.equal(events.filter((event) => event.type === 'tool_start').length, 3);
   });
 
@@ -5756,7 +5756,7 @@ describe('AiSdkBackend model history', () => {
 
     const events = await drainDurably(backend.send(durable.input()), durable);
     assert.equal(calls, 3);
-    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'step_limit');
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'empty_step_loop');
     assert.equal(events.filter((event) => event.type === 'tool_start').length, 3);
     assert.ok(
       events.some(
@@ -5765,6 +5765,200 @@ describe('AiSdkBackend model history', () => {
       ),
       'signature-only reasoning must still persist',
     );
+  });
+
+  test('continues through six or more distinct textless tool steps', async () => {
+    // The empty-step window must not treat ordinary multi-step tool work as a
+    // stuck loop when every request+result signature is new (#4083 review).
+    const loop = countingToolLoopModel(8);
+    const durable = durableTurnHarness('turn-empty-survive-distinct', 'keep going');
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => loop.model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events = await drainDurably(backend.send(durable.input()), durable);
+    assert.equal(loop.callCount(), 9);
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'end_turn');
+    assert.equal(events.filter((event) => event.type === 'tool_start').length, 8);
+  });
+
+  test('resets the empty-step window after visible text progress', async () => {
+    let calls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        calls += 1;
+        if (calls === 3) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                { type: 'stream-start', warnings: [] },
+                { type: 'text-start', id: 'text-progress' },
+                { type: 'text-delta', id: 'text-progress', delta: 'found a lead' },
+                { type: 'text-end', id: 'text-progress' },
+                {
+                  type: 'tool-call',
+                  toolCallId: `tool-${calls}`,
+                  toolName: 'Read',
+                  input: JSON.stringify({ path: 'notes.md' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: emptyUsage(),
+                },
+              ],
+              initialDelayInMs: null,
+              chunkDelayInMs: null,
+            }),
+          };
+        }
+        if (calls > 5) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                { type: 'stream-start', warnings: [] },
+                { type: 'text-start', id: 'text-final' },
+                { type: 'text-delta', id: 'text-final', delta: 'done' },
+                { type: 'text-end', id: 'text-final' },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: emptyUsage(),
+                },
+              ],
+              initialDelayInMs: null,
+              chunkDelayInMs: null,
+            }),
+          };
+        }
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'tool-call',
+                toolCallId: `tool-${calls}`,
+                toolName: 'Read',
+                input: JSON.stringify({ path: 'notes.md' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: emptyUsage(),
+              },
+            ],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const durable = durableTurnHarness('turn-empty-survive-text-reset', 'keep going');
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events = await drainDurably(backend.send(durable.input()), durable);
+    // Two identical empty steps, a text+tool reset, then two more identical
+    // empty steps — never three identical empty signatures in a row.
+    assert.equal(calls, 6);
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'end_turn');
+    assert.equal(events.filter((event) => event.type === 'tool_start').length, 5);
+  });
+
+  test('does not trip the empty-step cap when a repeated request yields a new result', async () => {
+    let calls = 0;
+    let resultN = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        calls += 1;
+        if (calls > 6) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                { type: 'stream-start', warnings: [] },
+                { type: 'text-start', id: 'text-final' },
+                { type: 'text-delta', id: 'text-final', delta: 'done' },
+                { type: 'text-end', id: 'text-final' },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: emptyUsage(),
+                },
+              ],
+              initialDelayInMs: null,
+              chunkDelayInMs: null,
+            }),
+          };
+        }
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'tool-call',
+                toolCallId: `tool-${calls}`,
+                toolName: 'Read',
+                input: JSON.stringify({ path: 'notes.md' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: emptyUsage(),
+              },
+            ],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const progressingTool: MakaTool = {
+      name: 'Read',
+      description: 'Read description',
+      parameters: z.object({ path: z.string() }),
+      impl: async () => ({ ok: true, n: ++resultN }),
+    };
+    const durable = durableTurnHarness('turn-empty-survive-result-progress', 'keep going');
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => model,
+      tools: [progressingTool],
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events = await drainDurably(backend.send(durable.input()), durable);
+    assert.equal(calls, 7);
+    assert.equal(resultN, 6);
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'end_turn');
+    assert.equal(events.filter((event) => event.type === 'tool_start').length, 6);
   });
 
   test('aborting during post-stream persistence wins over step-limit completion', async () => {

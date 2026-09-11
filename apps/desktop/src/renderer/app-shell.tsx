@@ -1929,7 +1929,6 @@ function AppShellContent({
       if (queued) delete retractedWorkspaceReferencesRef.current[sessionId];
       return queued;
     }
-    if (sessionId && hasActiveTurn && !slashCommand && !(await stop())) return false;
     if (
       revisionSend &&
       revision &&
@@ -2102,6 +2101,13 @@ function AppShellContent({
       ? revisionDraftRef.current
       : undefined;
     const quotes = pendingQuotes.length ? pendingQuotes : undefined;
+    // Plain Enter during a live turn: interrupt immediately before the root
+    // send so the typed message stops a runaway loop (#4083). Eligibility
+    // (revision / slash / compact) runs first — an inadmissible submit must
+    // not kill the active turn. Host `turn.interrupt` awaits the cancelled
+    // turn's terminal fact before resolving, so the Session lane is free for
+    // the root send below.
+    if (sessionId && hasActiveTurn && !slashCommand && !(await stop())) return false;
     const ok = await send(text, pending, {
       ...directoryOptions,
       ...(quotes ? { quotes } : {}),

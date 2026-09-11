@@ -161,8 +161,9 @@ interface ReactiveFixtureOptions {
   maxSteps?: number;
   /**
    * Give each scripted `tool` step a distinct Read path. Needed when a test
-   * chains several textless tool steps: the Runtime empty-step cap (#4083)
-   * stops consecutive identical tool signatures, which would otherwise look
+   * chains several textless tool steps that would otherwise share both input
+   * and a static `{ ok: true }` result: the Runtime empty-step cap (#4083)
+   * stops consecutive identical request+result signatures, which would look
    * like a stuck loop rather than intentional context growth.
    */
   distinctToolPaths?: boolean;

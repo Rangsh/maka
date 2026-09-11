@@ -595,10 +595,13 @@ const MAX_SEALED_THINKING_RETRIES_PER_STEP = 1;
  * with empty AI replies (#4083). Ordinary multi-step tool workflows and an
  * explicit `maxSteps` remain authoritative.
  *
- * Identical consecutive signatures still trip after three repeats. Alternating
- * textless signatures (A B A B …) bypass a consecutive-only counter, so the
- * recent window also stops when it fills with fewer distinct signatures than
- * steps — i.e. the window shows no distinct progress.
+ * Progress evidence is result-aware: a step is empty only when it has no
+ * visible text/thinking and the (toolName, input, result) signature repeats.
+ * Identical consecutive signatures still trip after three repeats. Short
+ * alternating cycles (A B A B …) bypass a consecutive-only counter, so the
+ * recent window also stops when it fills and at most half the signatures are
+ * distinct — i.e. the window is cycling rather than merely containing one
+ * benign repeat among otherwise new work.
  */
 const MAX_CONSECUTIVE_IDENTICAL_EMPTY_STEPS = 3;
 const EMPTY_STEP_SIGNATURE_WINDOW = 6;
@@ -2257,6 +2260,7 @@ export class AiSdkTurn {
           finishReason = providerOutcome.finishReason;
           await queue.waitUntilConsumedThroughCurrent();
 
+          let settledToolResults: unknown[] | undefined;
           if (returnedToolCalls.length > 0) {
             const continuationBudgetRemains = maxSteps === undefined || runtimeSteps < maxSteps;
             if (continuationBudgetRemains && !this.deps.backend.loadTurnRuntimeEvents) {
@@ -2333,6 +2337,7 @@ export class AiSdkTurn {
               if (outcome.status === 'rejected') throw outcome.reason;
               return outcome.value;
             });
+            settledToolResults = settlements.map((settlement) => settlement.result);
             for (let index = 0; index < settlements.length; index += 1) {
               const settlement = settlements[index]!;
               const toolCall = returnedToolCalls[index];
@@ -2374,9 +2379,16 @@ export class AiSdkTurn {
           });
           lastCompletedStepHadToolResult = returnedToolCalls.length > 0;
           const emptyStepSignature =
-            !stepSawVisibleText && !stepSawThinking && returnedToolCalls.length > 0
+            !stepSawVisibleText &&
+            !stepSawThinking &&
+            returnedToolCalls.length > 0 &&
+            settledToolResults !== undefined
               ? JSON.stringify(
-                  returnedToolCalls.map(({ toolName, input }) => ({ toolName, input })),
+                  returnedToolCalls.map(({ toolName, input }, index) => ({
+                    toolName,
+                    input,
+                    result: settledToolResults![index] ?? null,
+                  })),
                 )
               : undefined;
           if (
@@ -2393,18 +2405,21 @@ export class AiSdkTurn {
             if (recentEmptyStepSignatures.length > EMPTY_STEP_SIGNATURE_WINDOW) {
               recentEmptyStepSignatures.shift();
             }
+            const distinctEmptySignatures = new Set(recentEmptyStepSignatures).size;
+            // Require a short cycle (≤ half distinct), not merely one duplicate
+            // among otherwise progressing textless steps.
             const windowHasNoDistinctProgress =
               recentEmptyStepSignatures.length >= EMPTY_STEP_SIGNATURE_WINDOW &&
-              new Set(recentEmptyStepSignatures).size < recentEmptyStepSignatures.length;
+              distinctEmptySignatures * 2 <= recentEmptyStepSignatures.length;
             if (
               consecutiveIdenticalEmptySteps >= MAX_CONSECUTIVE_IDENTICAL_EMPTY_STEPS ||
               windowHasNoDistinctProgress
             ) {
-              // The model is repeating textless tool-only steps with no visible
-              // progress — either the same signature consecutively, or a short
-              // alternating cycle. Stop as a failed tool-step cap rather than
-              // reporting a successful end_turn with no answer (#4083).
-              this.loopStopReason = 'step_limit';
+              // The model is repeating textless tool-only steps with no request
+              // or result progress — either the same signature consecutively,
+              // or a short alternating cycle. Stop as empty_step_loop rather
+              // than a configured step_limit or a successful end_turn (#4083).
+              this.loopStopReason = 'empty_step_loop';
               this.loopStopRequested = true;
             }
           } else {
@@ -2452,9 +2467,6 @@ export class AiSdkTurn {
               !this.loopStopRequested &&
               !this.aborted
             ) {
-              // A redirected prompt deserves a fresh empty-step streak; otherwise
-              // a prior empty run would stop the turn before the steer can land.
-              clearEmptyStepProgress();
               currentStepMessageId = this.deps.newId();
               continue agentLoop;
             }

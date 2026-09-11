@@ -798,6 +798,7 @@ const USER_VISIBLE_SESSION_SYSTEM_NOTES = new Set([
   'context_reported_window_exceeded',
   'context_overflow_after_compaction',
   'step_limit',
+  'empty_step_loop',
 ]);
 
 /** Closed policy for system notes that are part of the user-visible transcript. */
@@ -1166,6 +1167,7 @@ export interface SystemNoteMessage {
     | 'context_reported_window_exceeded'
     | 'context_overflow_after_compaction'
     | 'step_limit'
+    | 'empty_step_loop'
     | 'error'
     | 'abort';
   /** Shape depends on `kind`. */
@@ -1415,6 +1417,7 @@ const SYSTEM_NOTE_KINDS = new Set([
   'context_reported_window_exceeded',
   'context_overflow_after_compaction',
   'step_limit',
+  'empty_step_loop',
   'error',
   'abort',
 ]);
@@ -1791,6 +1794,9 @@ function isToolActivityIdentity(value: Record<string, unknown>): boolean {
 
 export const STEP_LIMIT_NOTICE_TEXT =
   'Reached the configured step limit. The task may be incomplete. Send “continue” to resume.';
+
+export const EMPTY_STEP_LOOP_NOTICE_TEXT =
+  'Stopped after repeated empty tool steps with no visible progress. The task may be incomplete. Send a message to continue.';
 
 /** Latest actual model recorded by a completed assistant step. */
 export function latestAssistantModelId(messages: readonly StoredMessage[]): string | undefined {
