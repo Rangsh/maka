@@ -621,7 +621,7 @@
           "./locales/shell-copy.js": 1
         },
         "importSpecifiers": 0,
-        "nonTriviaTokens": 314
+        "nonTriviaTokens": 280
       },
       "src/renderer/app-shell-turn-actions.ts": {
         "importDeclarations": 2,
@@ -785,8 +785,8 @@
           "@maka/ui": 1,
           "react": 1
         },
-        "importSpecifiers": 94,
-        "nonTriviaTokens": 12502
+        "importSpecifiers": 91,
+        "nonTriviaTokens": 12364
       },
       "src/renderer/use-app-shell-session-list.ts": {
         "importDeclarations": 4,

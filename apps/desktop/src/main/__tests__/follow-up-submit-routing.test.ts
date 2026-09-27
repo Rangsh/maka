@@ -21,6 +21,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
   hasActiveTurnAtSubmit,
+  interruptBeforeRootSend,
   mergeWorkspaceReferences,
   shouldContinueRootSendAfterInterrupt,
 } from '../../renderer/follow-up-submit-routing.js';
@@ -61,6 +62,27 @@ describe('follow-up submit routing', () => {
       }),
       true,
     );
+  });
+
+  it('pins the submitting Session across an awaited interrupt before root send', async () => {
+    const stopped: string[] = [];
+    const activeIdRef = { current: 'session-a' as string | undefined };
+    assert.equal(
+      await interruptBeforeRootSend({
+        sessionId: 'session-a',
+        slashCommand: undefined,
+        liveTurn: { turnId: 'turn-1' },
+        runningTurnIds: [],
+        activeSessionId: () => activeIdRef.current,
+        stop: async (sessionId) => {
+          stopped.push(sessionId ?? '');
+          activeIdRef.current = 'session-b';
+          return true;
+        },
+      }),
+      false,
+    );
+    assert.deepEqual(stopped, ['session-a']);
   });
 
   it('restores workspace references after queued text returns to the draft', () => {

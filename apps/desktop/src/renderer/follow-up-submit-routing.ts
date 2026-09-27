@@ -45,6 +45,26 @@ export function shouldContinueRootSendAfterInterrupt(input: {
   return input.activeSessionId === input.submittingSessionId;
 }
 
+/** Interrupt a live turn before admitting a plain-Enter root send (#4083). */
+export async function interruptBeforeRootSend(input: {
+  sessionId: string | undefined;
+  slashCommand: unknown;
+  liveTurn?: { turnId: string; terminal?: boolean };
+  runningTurnIds?: readonly string[];
+  activeSessionId: () => string | undefined;
+  stop: (sessionId?: string) => Promise<boolean | void>;
+}): Promise<boolean> {
+  if (!input.sessionId || input.slashCommand) return true;
+  if (!hasActiveTurnAtSubmit({ liveTurn: input.liveTurn, runningTurnIds: input.runningTurnIds })) {
+    return true;
+  }
+  if (!(await input.stop(input.sessionId))) return false;
+  return shouldContinueRootSendAfterInterrupt({
+    submittingSessionId: input.sessionId,
+    activeSessionId: input.activeSessionId(),
+  });
+}
+
 export function mergeWorkspaceReferences(
   text: string,
   live: readonly WorkspaceFileReferencePosition[] | undefined,

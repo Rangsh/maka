@@ -100,12 +100,7 @@ import {
   desktopSlashCommandAvailability,
   parseDesktopSlashCommand,
 } from './desktop-slash-command';
-import {
-  hasActiveTurnAtSubmit,
-  mergeWorkspaceReferences,
-  rebaseWorkspaceFileReferences,
-  shouldContinueRootSendAfterInterrupt,
-} from './follow-up-submit-routing';
+import * as FollowUpSubmit from './follow-up-submit-routing';
 import {
   PlanExecutionPanel,
   PlanProposalCard,
@@ -338,9 +333,9 @@ function AppShellContent({
     ownerActiveId,
     switchingSession,
   } = useAppShellSessionWorkspace(toastApi);
-  // The shell's own reading of the catalog rides the membership set the list
-  // hook already publishes — background row churn belongs to the rail, which
-  // subscribes the catalog inside SessionNavigationProvider (#4109).
+  /* The shell's own reading of the catalog rides the membership set the list
+   * hook already publishes — background row churn belongs to the rail, which
+   * subscribes the catalog inside SessionNavigationProvider (#4109). */
   const sessionCount = authoritativeSessionIds?.size ?? 0;
   // Only the outstanding read needs a fence; past Sessions leave no hydration metadata.
   const interactionHydrationRef = useRef<{ sessionId: string } | null>(null);
@@ -366,8 +361,8 @@ function AppShellContent({
   const settingsOpen = overlays.selectors.settings.open;
 
   const onboarding = useOnboardingSnapshot();
-  // The owner bridge keeps commands stable while TaskEntryRoot swaps the
-  // current feature-owned implementation below the shell.
+  /* The owner bridge keeps commands stable while TaskEntryRoot swaps the
+   * current feature-owned implementation below the shell. */
   const { resolveWorkBoardTarget, prepareWorkBoardDraft, openSessionWorkspaceRecovery } = taskEntry.commands;
   const currentNewTaskDraftKey = taskEntry.selectors.draftKey;
   /* Staged files and quotes do NOT take the target-scoped key: they belong to
@@ -447,8 +442,8 @@ function AppShellContent({
         if (!enabled || becameEnabled) setWorkHubActive(enabled);
         if (becameEnabled) setNavSelection({ section: 'sessions' });
       } catch {
-        // Keep the last known client-owned setting. A transient settings read
-        // must not leave the shell half-switched between WorkHub and Session.
+        /* Keep the last known client-owned setting. A transient settings read
+         * must not leave the shell half-switched between WorkHub and Session. */
       }
     };
     void refresh();
@@ -601,9 +596,9 @@ function AppShellContent({
       cancelled = true;
     };
   }, [appearanceHydrated, previousInterruptionCopy, toastApi]);
-  // Persisted composer defaults seed the empty-state model, project path, and
-  // recent workspace history so the home view is populated before the async
-  // `app:info` round-trip completes on mount.
+  /* Persisted composer defaults seed the empty-state model, project path, and
+   * recent workspace history so the home view is populated before the async
+   * `app:info` round-trip completes on mount. */
   const persistedComposerDefaults = loadComposerDefaults();
   const composerRef = useRef<ComposerHandle>(null);
   const openComposerModelPicker = useCallback(() => {
@@ -616,14 +611,14 @@ function AppShellContent({
     revisionDraftRef.current = draft;
     setRevisionDraft(draft);
   }, []);
-  // The draft survives on exactly two catalog rows; CatalogRowWatch below
-  // selects them so their changes alone can retire it.
+  /* The draft survives on exactly two catalog rows; CatalogRowWatch below
+   * selects them so their changes alone can retire it. */
   const retireRevisionDraftIfRowsLeave = useCallback(
     (rows: Parameters<typeof catalogWatchedRowsUsable>[0]) => {
       const draft = revisionDraftRef.current;
       if (!draft) return;
-      // A watched row that is merely pending — never observed, never reported
-      // removed — is admission lag, not a departure.
+      /* A watched row that is merely pending — never observed, never reported
+       * removed — is admission lag, not a departure. */
       if (catalogWatchedRowsUsable(rows)) return;
       composerRef.current?.clearDraft(draft.draftSessionId);
       if (draft.sourceSessionId !== draft.draftSessionId)
@@ -660,9 +655,9 @@ function AppShellContent({
       }
     : undefined;
   const activeMessageQueue = activeId ? messageQueueBySession[activeId] : undefined;
-  // The shell's reading of the active live turn: streaming/settled flags, the
-  // in-flight tool signal, and the #646 turn-wait cues, all derived from the
-  // semantic snapshot rather than the projection (#1985).
+  /* The shell's reading of the active live turn: streaming/settled flags, the
+   * in-flight tool signal, and the #646 turn-wait cues, all derived from the
+   * semantic snapshot rather than the projection (#1985). */
   const {
     activeStreamingLive,
     activeStreamingMessageId,
@@ -679,15 +674,15 @@ function AppShellContent({
     turnActive: activeExecution?.available === true && turnActive,
     sessionStatus: activeSession?.status,
   });
-  // Surface a credential-lifecycle alert directly in the chat header when
-  // the active session's connection is in `needs_reauth` / `error` or has
-  // been deleted entirely with no usable default. Main resolves credential
-  // presence into the onboarding snapshot; a connection event starts an async
-  // snapshot pull, so the notice keeps the previous outcome only until that
-  // pull completes. Model / thinking selection + the hard-only health notice
-  // live in useShellChatModel (pure derivation of the snapshot + active session);
-  // openSettingsSection is injected so the notice can wrap the derived click
-  // target.
+  /* Surface a credential-lifecycle alert directly in the chat header when
+   * the active session's connection is in `needs_reauth` / `error` or has
+   * been deleted entirely with no usable default. Main resolves credential
+   * presence into the onboarding snapshot; a connection event starts an async
+   * snapshot pull, so the notice keeps the previous outcome only until that
+   * pull completes. Model / thinking selection + the hard-only health notice
+   * live in useShellChatModel (pure derivation of the snapshot + active session);
+   * openSettingsSection is injected so the notice can wrap the derived click
+   * target. */
   const activeSessionSendOutcome = activeSession
     ? onboarding.snapshot?.sessionSendOutcomes[activeSession.id]
     : undefined;
@@ -752,29 +747,29 @@ function AppShellContent({
     refreshModelChoices: sessionHostConnections.refreshConnections,
     setSessionExecutor,
   });
-  // PR109d-b: turn footer actions per turn. Derived from the
-  // materialized turn list (status + lineage descendants) + pending
-  // mask. Per @kenji PR109d review: pending state prevents double-click
-  // duplicate sibling turns by disabling the action button between
-  // click and `sessions:changed turn-status-change` arriving.
-  // Session-row mutations live in Session Navigation; the per-session mode and
-  // model claims live in the session UI store.
+  /* PR109d-b: turn footer actions per turn. Derived from the
+   * materialized turn list (status + lineage descendants) + pending
+   * mask. Per @kenji PR109d review: pending state prevents double-click
+   * duplicate sibling turns by disabling the action button between
+   * click and `sessions:changed turn-status-change` arriving.
+   * Session-row mutations live in Session Navigation; the per-session mode and
+   * model claims live in the session UI store. */
   const turnActionRegistry = useTurnActionRegistry();
 
-  // A hoisted declaration on purpose: `dropDisplayEvents` is destructured
-  // hundreds of lines below, and the rail does not need this identity held
-  // still — the rail's controller reads it through `portsRef`.
+  /* A hoisted declaration on purpose: `dropDisplayEvents` is destructured
+   * hundreds of lines below, and the rail does not need this identity held
+   * still — the rail's controller reads it through `portsRef`. */
   function clearSessionRendererState(sessionId: string): void {
     dropDisplayEvents(sessionId);
-    // `clearOwnedSessionState` ends in `clearSessionUiState`, which drops this
-    // session from every session-UI map — the four pending claims included.
+    /* `clearOwnedSessionState` ends in `clearSessionUiState`, which drops this
+     * session from every session-UI map — the four pending claims included. */
     clearOwnedSessionState(sessionId);
     turnActionRegistry.clearForSession(sessionId);
     sessionSettingIntent.commands.clear(sessionId);
   }
 
-  // Stable: the rail's row actions are built from it, and it only reaches
-  // registries and refs that are themselves stable (#4109).
+  /* Stable: the rail's row actions are built from it, and it only reaches
+   * registries and refs that are themselves stable (#4109). */
   function setPlanMode(active: boolean): Promise<boolean> {
     const sessionId = activeIdRef.current;
     if (!sessionId) {
@@ -811,10 +806,10 @@ function AppShellContent({
     return setOrchestrationMode('default');
   }
 
-  // Handed to ChatView, which calls it with the turns its transcript projection
-  // produced. The shell no longer materializes the transcript a second time to
-  // derive these props, so the turn objects the projection kept are also what
-  // keeps the props a memoized TurnView reads stable (#2030).
+  /* Handed to ChatView, which calls it with the turns its transcript projection
+   * produced. The shell no longer materializes the transcript a second time to
+   * derive these props, so the turn objects the projection kept are also what
+   * keeps the props a memoized TurnView reads stable (#2030). */
   const deriveTurnPresentation = useAppShellTurnPresentation({
     allowBranch: !sharedSessionActive,
     activeId,
@@ -857,8 +852,8 @@ function AppShellContent({
     setWorkHubActive(true);
   }, [overlays.commands, setNavSelection]);
 
-  // Transient placeholder while the real SessionSummary loads, so the composer
-  // does not flash a value the session never had.
+  /* Transient placeholder while the real SessionSummary loads, so the composer
+   * does not flash a value the session never had. */
   const activeSessionForView = activeSession ?? (activeId
     ? pendingSessionView({
         sessionId: activeId,
@@ -866,9 +861,9 @@ function AppShellContent({
         permissionMode: newSessionPermissionMode,
       })
     : undefined);
-  // Each control reads its own field. There is nothing to project and nothing
-  // to keep in sync: a Session in Plan with Swarm as its orchestration default
-  // says both, because it is both.
+  /* Each control reads its own field. There is nothing to project and nothing
+   * to keep in sync: a Session in Plan with Swarm as its orchestration default
+   * says both, because it is both. */
   const activePlanMode = activeId
     ? sessionSettingIntent.overlay.planMode
       ?? ((activeSessionForView?.collaborationMode ?? 'agent') === 'plan')
@@ -898,11 +893,11 @@ function AppShellContent({
     reading: activeExecutionBoundaryReading,
     reload: reloadActiveExecutionBoundary,
   } = useActiveExecutionBoundary(ownerActiveId, activeSessionForView?.permissionMode);
-  // The session view only subscribes to the session it shows, so a request
-  // raised while another session was active never reaches this surface as a
-  // live event — and neither does one raised before the window existed. The
-  // runtime holds every unanswered request, so read them back whenever the
-  // active session changes (#2072).
+  /* The session view only subscribes to the session it shows, so a request
+   * raised while another session was active never reaches this surface as a
+   * live event — and neither does one raised before the window existed. The
+   * runtime holds every unanswered request, so read them back whenever the
+   * active session changes (#2072). */
   useEffect(() => {
     if (!ownerActiveId) return;
     const pending = { sessionId: ownerActiveId };
@@ -947,20 +942,20 @@ function AppShellContent({
     content: <PlanProposalCard proposal={proposal} planMode={planMode} />,
   }));
   const activeMessageLoading = Boolean(activeId && messageLoadPending);
-  // Session switches clear the transcript projection before its async read.
-  // Keep the switch warning anchored to the durable session summary, while
-  // retaining the local projection for an optimistic first message that has
-  // not reached the catalog yet.
+  /* Session switches clear the transcript projection before its async read.
+   * Keep the switch warning anchored to the durable session summary, while
+   * retaining the local projection for an optimistic first message that has
+   * not reached the catalog yet. */
   const modelSwitchHasHistory =
     activeSessionForView?.lastMessageAt !== undefined ||
     messages.some((message) => message.type === 'user' || message.type === 'assistant');
-  // PR110c: OnboardingState is now the single source of truth for
-  // first-run UI. The renderer never re-derives provider readiness;
-  // `useOnboardingSnapshot()` pulls the derived state from the main
-  // process (PR110a + PR110b contract) and reactively invalidates on
-  // `sessions:changed` + `connections:event`. The hero renders only
-  // when sessions.length === 0; any session (including archived /
-  // aborted) takes over with the existing chat surface.
+  /* PR110c: OnboardingState is now the single source of truth for
+   * first-run UI. The renderer never re-derives provider readiness;
+   * `useOnboardingSnapshot()` pulls the derived state from the main
+   * process (PR110a + PR110b contract) and reactively invalidates on
+   * `sessions:changed` + `connections:event`. The hero renders only
+   * when sessions.length === 0; any session (including archived /
+   * aborted) takes over with the existing chat surface. */
   useEffect(() => {
     const snapshot = onboarding.snapshot;
     if (snapshot) {
@@ -970,20 +965,20 @@ function AppShellContent({
         chatModelChoices: snapshot.chatModelChoices,
       });
     } else if (onboarding.error) {
-      // Session bootstrap is independent above. If onboarding itself failed,
-      // retain the previous connection-specific recovery path as well.
+      /* Session bootstrap is independent above. If onboarding itself failed,
+       * retain the previous connection-specific recovery path as well. */
       void defaultHostConnections.refreshConnections();
     }
   }, [onboarding.error, onboarding.snapshot]);
-  // Nothing settled to show while the first snapshot pull is in flight. The
-  // flag keeps the composer hidden and — through `data-maka-content-ready` on
-  // .appFrame — holds the launch overlay until a real frame exists: sessions,
-  // a hero, or the load-error fallback.
+  /* Nothing settled to show while the first snapshot pull is in flight. The
+   * flag keeps the composer hidden and — through `data-maka-content-ready` on
+   * .appFrame — holds the launch overlay until a real frame exists: sessions,
+   * a hero, or the load-error fallback. */
   const isOnboardingLoading =
     sessionCount === 0 && onboardingState === undefined && !onboardingSettled && !onboarding.error;
-  // Only unfinished setup takes the chat surface over. A configured user with
-  // no sessions is not onboarding: they land on the normal empty chat and use
-  // the one real Composer, which creates the session on its first send.
+  /* Only unfinished setup takes the chat surface over. A configured user with
+   * no sessions is not onboarding: they land on the normal empty chat and use
+   * the one real Composer, which creates the session on its first send. */
   const showOnboardingHero =
     !sessionCount &&
     !onboardingSettled &&
@@ -997,10 +992,10 @@ function AppShellContent({
     showOnboardingHero,
   });
   const onboardingComposerHidden = isOnboardingLoading || (showOnboardingHero && onboardingState !== undefined);
-  // #1629: hiding the composer because the boundary is unknown is right, but
-  // hiding it silently and forever is not. Once the read has spent its retries
-  // the slot says so and hands the user another attempt; while it is still
-  // reading, or while onboarding owns the surface, there is nothing to say.
+  /* #1629: hiding the composer because the boundary is unknown is right, but
+   * hiding it silently and forever is not. Once the read has spent its retries
+   * the slot says so and hands the user another attempt; while it is still
+   * reading, or while onboarding owns the surface, there is nothing to say. */
   const boundaryUnreadableNotice =
     activeId && activeExecutionBoundaryUnreadable && !onboardingComposerHidden
       ? {
@@ -1074,9 +1069,9 @@ function AppShellContent({
       append: (text: string) => composer.appendText(text),
     };
   }, []);
-  // Where a NEW chat starts. Built unconditionally and handed to the composer,
-  // which renders it only while no session owns it — the project is fixed once
-  // the first message creates one, so there is nothing to pick after that.
+  /* Where a NEW chat starts. Built unconditionally and handed to the composer,
+   * which renders it only while no session owns it — the project is fixed once
+   * the first message creates one, so there is nothing to pick after that. */
   const taskReadinessWorkspace = activeSession?.cwd ?? taskEntry.selectors.projectPath;
   const taskReadinessRequest = {
     ...Conversation.resolveTaskReadinessModelTarget(activeSession, activeSessionSendOutcome, newChatModel),
@@ -1091,9 +1086,9 @@ function AppShellContent({
   const taskReadinessNotice = Conversation.deriveTaskReadinessNotice(taskReadiness.snapshot, uiLocale);
   const taskSubmissionHardBlocked =
     !activeId && !taskEntry.selectors.target;
-  // The titlebar names the directory the ACTIVE session runs in, so it reads
-  // the same projected project state the picker does — `projectInfo` already
-  // resolves to the session's own cwd once a session owns it.
+  /* The titlebar names the directory the ACTIVE session runs in, so it reads
+   * the same projected project state the picker does — `projectInfo` already
+   * resolves to the session's own cwd once a session owns it. */
   const titlebarProjectName = sharedSessionActive
     ? undefined
     : deriveTitlebarProjectName({
@@ -1103,13 +1098,13 @@ function AppShellContent({
   const openNewTaskSurface = useCallback(() => {
     imageNoticeLifecycle.reset(NEW_TASK_PENDING_KEY);
     const ownerToken = startNewSession();
-    // Only Plan resets: a new task starts out of Plan, in whatever
-    // orchestration the last one was set to.
+    /* Only Plan resets: a new task starts out of Plan, in whatever
+     * orchestration the last one was set to. */
     setNewChatPlanModeActive(false);
     setNavSelection({ section: 'sessions' });
     setSearchScrollTarget(null);
-    // New-task affordances reset to the empty-state composer; move focus
-    // there so the user can start typing immediately.
+    /* New-task affordances reset to the empty-state composer; move focus
+     * there so the user can start typing immediately. */
     window.requestAnimationFrame(() => composerRef.current?.focus());
     return ownerToken;
   }, [imageNoticeLifecycle, setNavSelection, setSearchScrollTarget, startNewSession]);
@@ -1118,8 +1113,8 @@ function AppShellContent({
     openNewTaskSurface();
   }, [openNewTaskSurface]);
 
-  // Stable, because the rail's Project rows carry it: a fresh identity here
-  // rebuilt the whole list on every AppShell commit (#4109).
+  /* Stable, because the rail's Project rows carry it: a fresh identity here
+   * rebuilt the whole list on every AppShell commit (#4109). */
   const projectRowActions = useMemo<ProjectRowActions | undefined>(
     () => taskEntry.selectors.projectScopes.length === 0 ? undefined : {
       onNew: (key) => {
@@ -1133,11 +1128,11 @@ function AppShellContent({
     [openNewTaskSurface, taskEntry.commands, taskEntry.selectors.projectScopes.length],
   );
 
-  // Composer mention popups: `/` uses Runtime's session/project-aware,
-  // host-compatible projection; `@` uses workspace file search. Keep the
-  // resolved project path as a refresh key for new-chat project changes. Only
-  // the SURFACE is named here — the projection itself is owned by
-  // `ComposerMentionsProvider` below, so its reloads do not re-render the shell.
+  /* Composer mention popups: `/` uses Runtime's session/project-aware,
+   * host-compatible projection; `@` uses workspace file search. Keep the
+   * resolved project path as a refresh key for new-chat project changes. Only
+   * the SURFACE is named here — the projection itself is owned by
+   * `ComposerMentionsProvider` below, so its reloads do not re-render the shell. */
   const composerMentionsSurface: ComposerMentionsSurfaceInput = {
     sessionId: ownerActiveId,
     projectPath: activeId
@@ -1148,8 +1143,8 @@ function AppShellContent({
     newTaskTarget: activeId ? undefined : taskEntry.selectors.target,
     newSessionModel: newChatModel,
     newSessionCollaborationMode: newChatPlanModeActive ? 'plan' : 'agent',
-    // Refresh only; Desktop Main re-reads the authoritative default before
-    // constructing the Runtime Host preview target.
+    /* Refresh only; Desktop Main re-reads the authoritative default before
+     * constructing the Runtime Host preview target. */
     newSessionPermissionMode,
     onAddQuote: addQuote,
     pendingQuotes,
@@ -1210,9 +1205,9 @@ function AppShellContent({
   }, [openSession]);
   const pendingSessionRowActionsRef = useRef(new Set<string>());
   const sessionNavigationCommandsRef = useRef<SessionNavigationRowActions | null>(null);
-  // Built inline: the rail reads these through a ref published on commit, so
-  // their identity carries no information and this object never has to be
-  // held still by hand (#4109).
+  /* Built inline: the rail reads these through a ref published on commit, so
+   * their identity carries no information and this object never has to be
+   * held still by hand (#4109). */
   const sessionNavigationPorts: SessionNavigationPorts = {
     sessionsRef,
     pendingSessionRowActionsRef,
@@ -1425,16 +1420,11 @@ function AppShellContent({
     const slashCommand = parseDesktopSlashCommand(text);
     // Message placement expresses user intent; Host decides admission.
     const sessionId = activeIdRef.current;
-    const workspaceFileReferences = mergeWorkspaceReferences(
+    const workspaceFileReferences = FollowUpSubmit.mergeWorkspaceReferences(
       text,
       metadata?.workspaceFileReferences,
       sessionId ? retractedWorkspaceReferencesRef.current[sessionId] : undefined,
     );
-    const liveTurn = sessionId ? sessionUiController.liveTurnBySessionRef.current[sessionId] : undefined;
-    const runningTurnIds = sessionId
-      ? sessionsRef.current.find((session) => session.id === sessionId)?.runningTurnIds
-      : undefined;
-    const hasActiveTurn = hasActiveTurnAtSubmit({ liveTurn, runningTurnIds });
     const followUpAtSubmit = slashCommand ? undefined : metadata?.followUpMode;
     if (sessionId && followUpAtSubmit) {
       const queued = await enqueueFollowUp(sessionId, text, followUpAtSubmit, {
@@ -1547,7 +1537,7 @@ function AppShellContent({
         ...(quotes ? { quotes } : {}),
         ...(metadata?.workspaceFileReferences?.length
           ? {
-              workspaceFileReferences: rebaseWorkspaceFileReferences(
+              workspaceFileReferences: FollowUpSubmit.rebaseWorkspaceFileReferences(
                 text,
                 swarmCommand.task,
                 metadata.workspaceFileReferences,
@@ -1596,7 +1586,7 @@ function AppShellContent({
         ...(quotes ? { quotes } : {}),
         ...(metadata?.workspaceFileReferences?.length
           ? {
-              workspaceFileReferences: rebaseWorkspaceFileReferences(
+              workspaceFileReferences: FollowUpSubmit.rebaseWorkspaceFileReferences(
                 text,
                 graphCommand.task,
                 metadata.workspaceFileReferences,
@@ -1616,24 +1606,20 @@ function AppShellContent({
       ? revisionDraftRef.current
       : undefined;
     const quotes = quotesForSend();
-    // Plain Enter during a live turn: interrupt immediately before the root
-    // send so the typed message stops a runaway loop (#4083). Eligibility
-    // (revision / slash / compact) runs first — an inadmissible submit must
-    // not kill the active turn. Host `turn.interrupt` awaits the cancelled
-    // turn's terminal fact before resolving, so the Session lane is free for
-    // the root send below. Pass the captured Session into stop and refuse the
-    // send if the user navigated away during that await — otherwise `send()`
-    // would re-read `activeIdRef` and deliver the draft to the wrong Session.
-    if (sessionId && hasActiveTurn && !slashCommand) {
-      if (!(await stop(sessionId))) return false;
-      if (
-        !shouldContinueRootSendAfterInterrupt({
-          submittingSessionId: sessionId,
-          activeSessionId: activeIdRef.current,
-        })
-      ) {
-        return false;
-      }
+    // #4083: plain Enter interrupts the live turn before a new root send.
+    if (
+      !(await FollowUpSubmit.interruptBeforeRootSend({
+        sessionId,
+        slashCommand,
+        liveTurn: sessionId ? sessionUiController.liveTurnBySessionRef.current[sessionId] : undefined,
+        runningTurnIds: sessionId
+          ? sessionsRef.current.find((session) => session.id === sessionId)?.runningTurnIds
+          : undefined,
+        activeSessionId: () => activeIdRef.current,
+        stop,
+      }))
+    ) {
+      return false;
     }
     const ok = await send(text, pending, {
       waitForHostAdmission: revisionSend,
@@ -1682,8 +1668,8 @@ function AppShellContent({
     if (sessionId && messageId) removeTransientMessage(sessionId, messageId);
   }
 
-  // Surfaces the failure, then rethrows so the pending plate can settle its
-  // in-flight action state without guessing with a timer.
+  /* Surfaces the failure, then rethrows so the pending plate can settle its
+   * in-flight action state without guessing with a timer. */
   async function runQueueEntryAction(
     action: (sessionId: string) => Promise<void>,
   ): Promise<string | undefined> {
@@ -1749,10 +1735,10 @@ function AppShellContent({
     },
   });
 
-  // Streaming-settle handoff, FALLBACK path only. The bubble's primary
-  // `onStreamingSettled` signal runs after Astryx commits the terminal text.
-  // Keep a delayed fallback because a stuck slot would otherwise hide the
-  // committed answer forever (`streamingMessageId` suppresses it while live).
+  /* Streaming-settle handoff, FALLBACK path only. The bubble's primary
+   * `onStreamingSettled` signal runs after Astryx commits the terminal text.
+   * Keep a delayed fallback because a stuck slot would otherwise hide the
+   * committed answer forever (`streamingMessageId` suppresses it while live). */
   useEffect(() => {
     if (!activeId || !activeStreamingMessageId) return;
     const committedAssistantArrived = messages.some(
@@ -1946,20 +1932,20 @@ function AppShellContent({
 
   function closeSettings() {
     overlays.commands.closeSettings();
-    // PR110c: re-pull onboarding snapshot when the user closes the
-    // Settings modal — they may have just configured a default
-    // connection or supplied a credential. Existing connections /
-    // sessions events cover most state changes, but a settings-only
-    // write (e.g. defaultSlug picked) may not always fire one.
+    /* PR110c: re-pull onboarding snapshot when the user closes the
+     * Settings modal — they may have just configured a default
+     * connection or supplied a credential. Existing connections /
+     * sessions events cover most state changes, but a settings-only
+     * write (e.g. defaultSlug picked) may not always fire one. */
     onboarding.refresh();
-    // PR-MEMORY-VISIBILITY-INDICATOR-0: same recompute path for the
-    // session-context memory state — user may have just flipped the
-    // agentReadEnabled switch.
+    /* PR-MEMORY-VISIBILITY-INDICATOR-0: same recompute path for the
+     * session-context memory state — user may have just flipped the
+     * agentReadEnabled switch. */
     void refreshMemoryActive();
     void defaultHostConnections.refreshConnections();
-    // Settings pages own optimistic local drafts, so the shell does not see
-    // every write live. Refresh its display mirrors on close (e.g. default
-    // permission mode) without requiring an app restart.
+    /* Settings pages own optimistic local drafts, so the shell does not see
+     * every write live. Refresh its display mirrors on close (e.g. default
+     * permission mode) without requiring an app restart. */
     void refreshShellSettings();
   }
 
@@ -1999,8 +1985,8 @@ function AppShellContent({
 
   const canStageComposerContext =
     activeId !== undefined || taskEntry.selectors.target !== undefined;
-  // #4804: attachment-only sends are opt-in per host surface, and the Desktop
-  // host now admits them. The pickers share the same edit-mode condition.
+  /* #4804: attachment-only sends are opt-in per host surface, and the Desktop
+   * host now admits them. The pickers share the same edit-mode condition. */
   const contextPickEnabled =
     canStageComposerContext &&
     !(revisionDraft && activeId === revisionDraft.draftSessionId);
@@ -2071,12 +2057,12 @@ function AppShellContent({
         : 'im_hub';
 
   return (
-    // Feature controllers live below the shell. Task Entry publishes a stable
-    // shell projection plus reader-local Host/Workspace Picker projections;
-    // Goal state and Module Hub ownership likewise wake only their narrow
-    // readers. Composer mentions still wrap the frame so one projection serves
-    // every composer, including side-chat panels, without rebuilding the frame
-    // on catalog moves.
+    /* Feature controllers live below the shell. Task Entry publishes a stable
+     * shell projection plus reader-local Host/Workspace Picker projections;
+     * Goal state and Module Hub ownership likewise wake only their narrow
+     * readers. Composer mentions still wrap the frame so one projection serves
+     * every composer, including side-chat panels, without rebuilding the frame
+     * on catalog moves. */
     <SessionSettingsProvider
       bridge={sessionSettingIntent.bridge}
       input={{
@@ -2309,10 +2295,10 @@ function AppShellContent({
                 onOpenWorkHub={openWorkHub} onOpenSession={(sessionId) => { closeSettings(); openSession(sessionId); }} />
               <WorkHubDock workbarTogglePosition={workbarTogglePosition} workbarCollapsed={selectors.rightCollapsed} enabled={workHubEnabled} visible={workHubActive && sessionsSelected && !shellObscured} />
               <ChatSurfaceLayout
-                // ChatView positions this transcript: switching conversations,
-                // following the tail and the moves the reader asks for are one
-                // authority there, and the composer never remounts for any of
-                // them — its contenteditable DOM carries the live draft.
+                /* ChatView positions this transcript: switching conversations,
+                 * following the tail and the moves the reader asks for are one
+                 * authority there, and the composer never remounts for any of
+                 * them — its contenteditable DOM carries the live draft. */
                 data-maka-onboarding={showOnboardingHero ? 'true' : undefined}
                 scrollToBottomLabel={
                   desktopConversationCopy.actions.scrollMainToBottom
@@ -2370,9 +2356,9 @@ function AppShellContent({
                   directoryPickerEnabled={Boolean(
                     canStageComposerContext && directoryHostId && !revisionDraft
                   )}
-                  // #646: Stop must be available for the WHOLE turn - the moment the
-                  // user most wants to interrupt is a long wait with nothing on
-                  // screen (first token, or a slow provider's step-to-step lull).
+                  /* #646: Stop must be available for the WHOLE turn - the moment the
+                   * user most wants to interrupt is a long wait with nothing on
+                   * screen (first token, or a slow provider's step-to-step lull). */
                   streaming={turnActive}
                   processing={transientMessages.length > 0}
                   onSend={sendOwningItsTarget}
@@ -2428,12 +2414,12 @@ function AppShellContent({
                     ? shellCopy.configureModelsOnHost(composerProfileName)
                     : undefined}
                   permissionMode={activePermissionMode}
-                  // Every "cannot change this mid-turn" gate reads `turnActive`,
-                  // the same witness Stop reads. Reading the persisted status
-                  // here instead left these toggles live through the whole
-                  // send→run-start window — long enough on a cold backend for a
-                  // mode change to land before the run registers and alter the
-                  // execution config of the turn already sent.
+                  /* Every "cannot change this mid-turn" gate reads `turnActive`,
+                   * the same witness Stop reads. Reading the persisted status
+                   * here instead left these toggles live through the whole
+                   * send→run-start window — long enough on a cold backend for a
+                   * mode change to land before the run registers and alter the
+                   * execution config of the turn already sent. */
                   permissionModeDisabledReason={
                     activeStreamingLive
                       ? shellCopy.permissionModeStreaming
@@ -2447,10 +2433,10 @@ function AppShellContent({
                     await setPermissionMode(mode)
                   }}
                   planModeActive={activePlanMode}
-                  // No pending-keyed disable while a toggle commits: the
-                  // pending registries already swallow re-entrant toggles, and
-                  // a reason here would gray the row mid-click — the blink
-                  // this control had. The rows repaint when the write lands.
+                  /* No pending-keyed disable while a toggle commits: the
+                   * pending registries already swallow re-entrant toggles, and
+                   * a reason here would gray the row mid-click — the blink
+                   * this control had. The rows repaint when the write lands. */
                   planModeDisabledReason={modeChangeDisabledReason}
                   onPlanModeChange={(active) => void setPlanMode(active)}
                   orchestrationMode={activeOrchestrationMode}
