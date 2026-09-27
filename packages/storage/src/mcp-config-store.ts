@@ -17,13 +17,14 @@
  * under the License.
  */
 
-import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { watch } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import {
   MCP_CONFIG_VERSION,
   createDefaultMcpConfig,
   isNonLoopbackCleartextHttp,
+  mcpConfigChangeRetiresCredentials,
   type McpConfigFile,
   type McpConfigSourceFailureReason,
   type McpOAuthConfig,
@@ -32,20 +33,37 @@ import {
   type McpServerConfig,
   type McpStdioServerConfig,
 } from '@maka/core/mcp';
+import { writeAtomicFile } from './atomic-file-write.js';
 import { withProcessLifetimeFileUpdateLock } from './process-lifetime-file-update-lock.js';
+import { hardenDirectory } from './stable-storage.js';
+
+// Consumers reconcile an already-published write through this store's public
+// boundary; the shared atomic writer itself remains internal to storage.
+export { AtomicFileWriteCommitUnknownError } from './atomic-file-write.js';
 
 const MAX_SERVERS = 100;
 const MAX_ID_LENGTH = 128;
 const MAX_STRING_LENGTH = 8_192;
 const MAX_CONFIG_BYTES = 1_048_576;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+// An atomic replace is a temp write plus a rename; one settle window turns
+// that burst into one notification.
+const CHANGE_SETTLE_MS = 150;
 
 export interface McpConfigStore {
   get(): Promise<McpConfigFile>;
+  /** Called after any process replaces mcp.json, this one included, and
+   * once when watching begins, so a change made before that is not missed.
+   * The listener re-reads with get(); it receives an error once if watching
+   * stops. */
+  subscribeChanges(listener: (error?: Error) => void): () => void;
   /** One cross-process read-transform-write transaction. `apply` sees the
    * current on-disk config and may finish asynchronous effects that must
    * precede the commit, such as retiring credentials. The shared file lock
-   * remains held until the replacement document is durable. */
+   * remains held until the write settles. A write can fail after publication
+   * with AtomicFileWriteCommitUnknownError when durability is unconfirmed:
+   * reload with get() and reconcile consumers before considering a retry.
+   * Never blindly replay apply, whose effects may already have happened. */
   transform(
     apply: (current: McpConfigFile) => McpConfigFile | Promise<McpConfigFile>,
   ): Promise<McpConfigFile>;
@@ -76,6 +94,71 @@ export class McpServerExistsError extends Error {
 
 export function createMcpConfigStore(workspaceRoot: string): McpConfigStore {
   return new FileMcpConfigStore(join(workspaceRoot, 'mcp.json'));
+}
+
+/** Watches the directory, not the file: an atomic replace renames a new
+ * inode over the old one, which ends a watch on the file itself. */
+export function subscribeMcpConfigFileChanges(
+  path: string,
+  listener: (error?: Error) => void,
+): () => void {
+  const name = basename(path);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let watcher: ReturnType<typeof watch>;
+  const settle = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => listener(), CHANGE_SETTLE_MS);
+  };
+  try {
+    watcher = watch(dirname(path), { persistent: false }, (_event, filename) => {
+      if (filename === null || filename.toString() === name) settle();
+    });
+  } catch (error) {
+    queueMicrotask(() => listener(error as Error));
+    return () => {};
+  }
+  settle();
+  const stop = () => {
+    clearTimeout(timer);
+    watcher.close();
+  };
+  watcher.on('error', (error) => {
+    stop();
+    listener(error);
+  });
+  return stop;
+}
+
+export class McpConfigurationValidationError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'Invalid MCP configuration', { cause });
+    this.name = 'McpConfigurationValidationError';
+  }
+}
+
+/** Validate before retiring credentials, and retire before publishing the
+ * replacement. Both effects run under the config file's cross-process lock. */
+export function updateMcpConfiguration(
+  store: Pick<McpConfigStore, 'transform'>,
+  prepare: (current: McpConfigFile) => McpConfigFile,
+  retireCredentials: (serverId: string, previous: McpServerConfig) => Promise<void>,
+): Promise<McpConfigFile> {
+  return store.transform(async (current) => {
+    const proposed = prepare(current);
+    let next: McpConfigFile;
+    try {
+      next = normalizeMcpConfig(proposed);
+      assertMcpEndpointPolicyOnChanges(current, next);
+    } catch (error) {
+      throw new McpConfigurationValidationError(error);
+    }
+    for (const [serverId, previous] of Object.entries(current.mcpServers)) {
+      if (mcpConfigChangeRetiresCredentials(previous, next.mcpServers[serverId])) {
+        await retireCredentials(serverId, previous);
+      }
+    }
+    return next;
+  });
 }
 
 export function normalizeMcpConfig(value: unknown): McpConfigFile {
@@ -140,6 +223,23 @@ class FileMcpConfigStore implements McpConfigStore {
     }
   }
 
+  subscribeChanges(listener: (error?: Error) => void): () => void {
+    let stop: (() => void) | undefined;
+    let stopped = false;
+    void this.ensureDirectory().then(
+      () => {
+        if (!stopped) stop = subscribeMcpConfigFileChanges(this.path, listener);
+      },
+      (error: Error) => {
+        if (!stopped) listener(error);
+      },
+    );
+    return () => {
+      stopped = true;
+      stop?.();
+    };
+  }
+
   async transform(
     apply: (current: McpConfigFile) => McpConfigFile | Promise<McpConfigFile>,
   ): Promise<McpConfigFile> {
@@ -195,30 +295,15 @@ class FileMcpConfigStore implements McpConfigStore {
   }
 
   private async write(config: McpConfigFile): Promise<void> {
-    const dir = dirname(this.path);
     await this.ensureDirectory();
-    const tempPath = join(dir, `.mcp-${randomUUID()}.tmp`);
-    try {
-      await writeFile(tempPath, `${JSON.stringify(config, null, 2)}\n`, {
-        encoding: 'utf8',
-        mode: 0o600,
-        flag: 'wx',
-      });
-      if (process.platform !== 'win32') await chmod(tempPath, 0o600);
-      await rename(tempPath, this.path);
-      if (process.platform !== 'win32') await chmod(this.path, 0o600);
-    } finally {
-      await rm(tempPath, { force: true }).catch(() => {});
-    }
+    await writeAtomicFile(this.path, `${JSON.stringify(config, null, 2)}\n`, {
+      fileMode: 0o600,
+    });
   }
 
   private ensureDirectory(): Promise<void> {
     if (this.directoryReady) return this.directoryReady;
-    const dir = dirname(this.path);
-    const ready = (async () => {
-      await mkdir(dir, { recursive: true, mode: 0o700 });
-      if (process.platform !== 'win32') await chmod(dir, 0o700);
-    })();
+    const ready = hardenDirectory(dirname(this.path), 0o700);
     this.directoryReady = ready;
     void ready.catch(() => {
       if (this.directoryReady === ready) this.directoryReady = undefined;
@@ -339,6 +424,22 @@ function normalizeServer(
 function normalizeOAuth(value: unknown, serverId: string): McpOAuthConfig {
   if (!isRecord(value)) throw new Error(`${serverId}.oauth must be an object`);
   const result: McpOAuthConfig = {};
+  if (value.issuer !== undefined) {
+    const issuer = nonEmptyString(value.issuer, `${serverId}.oauth.issuer`);
+    const parsed = new URL(issuer);
+    if (
+      !['https:', 'http:'].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error(
+        `${serverId}.oauth.issuer must be an HTTP(S) issuer URL without credentials, query or fragment`,
+      );
+    }
+    result.issuer = issuer;
+  }
   if (value.clientId !== undefined) {
     result.clientId = nonEmptyString(value.clientId, `${serverId}.oauth.clientId`);
   }

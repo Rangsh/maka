@@ -79,6 +79,11 @@ export interface SessionNavigationRowActions {
   archiveSession(sessionId: string): Promise<void>;
   unarchiveSession(sessionId: string): Promise<void>;
   renameSession(sessionId: string, name: string): Promise<void>;
+  /**
+   * Re-files a task under another project, or out of every project (`null`).
+   * Not a revision-family action: one working directory moves.
+   */
+  moveSessionToProject(sessionId: string, projectId: string | null): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
   purgeSessions(sessionIds: readonly string[]): Promise<SessionPurgeOutcome>;
   /** Sweeps and reports — the rail's own wording. */
@@ -89,33 +94,27 @@ export interface SessionNavigationRowActions {
 
 export function createSessionNavigationRowActions(deps: {
   uiLocale: UiLocale;
-  activeIdRef: RefObject<string | undefined>;
-  clearActiveMessages: () => void;
   clearSessionRendererState: (sessionId: string) => void;
   pendingSessionRowActionsRef: RefObject<Set<string>>;
   refreshSessions: () => Promise<ReadonlyArray<SessionSummary>>;
   service: SessionNavigationSessionService;
   sessionsRef: RefObject<ReadonlyArray<SessionSummary>>;
-  setActiveId: (sessionId: string | undefined) => void;
   toastApi: SessionNavigationToastApi;
 }): SessionNavigationRowActions {
   const {
     uiLocale,
-    activeIdRef,
-    clearActiveMessages,
     clearSessionRendererState,
     pendingSessionRowActionsRef,
     refreshSessions,
     service,
     sessionsRef,
-    setActiveId,
     toastApi,
   } = deps;
   const copy = getShellCopy(uiLocale).sessionRowActions;
 
   async function runSessionRowAction(
     sessionId: string,
-    actionId: 'flag' | 'archive' | 'rename' | 'delete',
+    actionId: 'flag' | 'archive' | 'rename' | 'delete' | 'move',
     errorTitle: string,
     action: () => Promise<void>,
   ): Promise<void> {
@@ -148,10 +147,6 @@ export function createSessionNavigationRowActions(deps: {
     return runSessionRowAction(sessionId, 'archive', copy.archiveFailedTitle, async () => {
       const familyIds = revisionFamilySessionIds(sessionsRef.current, sessionId);
       await service.archive(sessionId, { revisionFamily: true });
-      if (activeIdRef.current && familyIds.includes(activeIdRef.current)) {
-        setActiveId(undefined);
-        clearActiveMessages();
-      }
       for (const id of familyIds) clearSessionRendererState(id);
       await refreshSessions();
     });
@@ -240,10 +235,6 @@ export function createSessionNavigationRowActions(deps: {
       requireArchived: options.requireArchived,
     });
     if (outcome.disposition === 'restored') return outcome;
-    if (activeIdRef.current && familyIds.includes(activeIdRef.current)) {
-      setActiveId(undefined);
-      clearActiveMessages();
-    }
     for (const id of familyIds) clearSessionRendererState(id);
     return outcome;
   }
@@ -377,10 +368,6 @@ export function createSessionNavigationRowActions(deps: {
       try {
         const familyIds = revisionFamilySessionIds(sessionsRef.current, sessionId);
         await service.archive(sessionId, { revisionFamily: true });
-        if (activeIdRef.current && familyIds.includes(activeIdRef.current)) {
-          setActiveId(undefined);
-          clearActiveMessages();
-        }
         for (const id of familyIds) clearSessionRendererState(id);
         archived += 1;
       } catch (error) {
@@ -478,11 +465,32 @@ export function createSessionNavigationRowActions(deps: {
     );
   }
 
+  /**
+   * Re-file one task into another project, or out of every project.
+   *
+   * The refusals worth explaining — a running Turn, a project that is gone —
+   * arrive as an outcome rather than a thrown error, so the toast can name the
+   * reason instead of falling back to the generic line.
+   */
+  async function moveSessionToProject(sessionId: string, projectId: string | null) {
+    return runSessionRowAction(sessionId, 'move', copy.moveFailedTitle, async () => {
+      const outcome = await service.moveToProject(sessionId, projectId);
+      if (!outcome.ok) {
+        toastApi.error(copy.moveFailedTitle, copy.moveFailures[outcome.code], undefined, {
+          sessionId,
+        });
+        return;
+      }
+      await refreshSessions();
+    });
+  }
+
   return {
     flagSession,
     archiveSession,
     unarchiveSession,
     renameSession,
+    moveSessionToProject,
     deleteSession,
     purgeSessions,
     archiveSelected,

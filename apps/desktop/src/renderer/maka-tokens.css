@@ -251,13 +251,6 @@
      emphasis, and using this for CTAs is exactly the palette-invisibility
      bug called out in the --brand-deep note above. */
   --maka-brand: #71a8fd;
-  /* Every MCP market tile renders a real library brand mark on a neutral plate
-     (mcp-brand-marks.tsx: simple-icons + @ant-design/icons-svg DingTalk + the
-     vendored Feishu mark), so no per-brand plate-tint token is needed — a
-     colourful logo already supplies the brand identity. The system-banner tint
-     alias went the same way: the scheduled-tasks banner derives from --accent
-     directly, which is one indirection fewer for the same result. */
-
   /* === text variants (mixed toward foreground for better contrast) === */
   --success-text: color-mix(in oklab, var(--success) 50%, var(--foreground));
   --destructive-text: color-mix(in oklab, var(--destructive) 50%, var(--foreground));
@@ -756,7 +749,7 @@
   /* ICON_SIZE in @maka/ui's icons.tsx is the icon scale; components pass it as
      a prop. These two rungs exist only for the sites that size a glyph from
      CSS — add a rung here when a CSS site needs one, not to mirror the TS. */
-  --icon-meta: 13px;
+  --icon-meta: 12px;
   --icon-control: 14px;
 
   /* === motion ===
@@ -881,16 +874,16 @@
      everything already standing between it and that edge. Two literals would be
      two chances to change one of them. */
   --maka-titlebar-gutter-left: max(var(--space-6), var(--maka-titlebar-area-x));
+  /* Shared by the titlebar strip and the workbar's bar, which hold one collapse
+     toggle to the same x. Deliberately not the left gutter's `--space-6`
+     floor: the left is a safe area under the traffic lights, the right is the
+     bar's own inset. */
+  --maka-titlebar-gutter-right: calc(
+    var(--space-2) + var(--maka-titlebar-overlay-right-width)
+  );
   --maka-titlebar-gap: var(--space-2);
-  /* What the strip keeps for itself. This window has no OS title bar, so the
-     strip IS the drag handle, and the session breadcrumb is a grid item that
-     grows to its content: with a maximal name it took the whole middle column
-     and left an 8px band between it and the actions cluster (measured, 1000px
-     window: draggable width across the strip fell from ~730px to 216px, almost
-     all of it left of the breadcrumb). A name is worth reading, but not at the
-     price of being unable to move the window — so the trail truncates a little
-     sooner and this much stays draggable. */
-  --maka-titlebar-drag-reserve: 25%;
+  /* Keep a drag target beside the title without reserving a quarter of wide windows. */
+  --maka-titlebar-drag-reserve: min(25%, var(--space-12));
 
   /* session list geometry */
 
@@ -944,6 +937,7 @@
      the answer wider than the composer under it. Two measures for one column
      is what put a second right edge inside a turn; there is one now. */
   --maka-reading-measure: 800px;
+  --maka-transcript-gutter: clamp(var(--space-3), 4vw, var(--space-10));
 
   /* === settings ==========================================================
      One right-edge cap for a settings row's end slot — the read-only value
@@ -1165,8 +1159,7 @@
    no --info hue: "info" is a semantic slot (Banner status), so it paints with
    the accent at 0.24 like its three siblings. It has to be the
    same CONSTRUCTION and not just the same weight — an opaque tint does not
-   compose, so a tinted chip on a tinted panel (deep-research's count pill,
-   plan-mode's in-progress marker) resolves to the parent's exact pixel and
+   compose, so a tinted chip on a tinted panel (plan-mode's in-progress marker) resolves to the parent's exact pixel and
    disappears. Alpha is also what upstream ships this token as (#0082FB33,
    0.20); theme-neutral is what flattens it to an opaque #f1f1f1.
 
@@ -1226,6 +1219,39 @@
 
 @layer base {
   * { box-sizing: border-box; border-color: var(--border); }
+
+  /* One scrollbar for the whole app (visual system 2.0 T5-F): the platform
+     thin bar, coloured with `--border-strong` over a transparent gutter. The
+     universal selector is intentional because `scrollbar-width` is not
+     inherited. This base-layer default yields to element-owned declarations
+     in the higher Astryx and product component layers, such as a TabList
+     strip's `none` (#2538). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+    background: var(--border-strong);
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    /* One step above --border-strong's 16%, scoped to the thumb only. */
+    background-color: oklch(from var(--foreground) l c h / 0.28);
+  }
 
   /* The root font-size stays at the browser default (16px) ON PURPOSE.
      It used to be pinned to 13px to express Maka's density, but the root is
@@ -1321,11 +1347,6 @@
        this line. */
     font: var(--maka-text-body);
     color: var(--foreground);
-    /* Astryx's reset puts `antialiased` on `:where(body)`, which strips the
-       stroke dilation macOS applies and thins 14px Han glyphs. Maka is
-       CJK-first, so the platform default wins here, for the whole document. */
-    -webkit-font-smoothing: auto;
-    -moz-osx-font-smoothing: auto;
     overflow: hidden;          /* main shell handles its own scrolling */
   }
 
@@ -1377,18 +1398,12 @@
 
   /* ---- Chat surface ----------------------------------------------- */
 
-  /* Turn grouping (per kenji UI-04): user msg + tools + assistant answer
-   * cluster into one visual unit. The section is a flex container; both the
-   * between-turn and within-turn gaps are uniform (CHAT-TURN-SPACING-0), so
-   * a turn reads as one unit by grouping, not by tighter internal spacing. */
+  /* A turn reads as one unit because its internal gap is well under the
+     between-turn gap, which the transcript row in chat-view.tsx owns. */
   .maka-turn {
     display: flex;
     flex-direction: column;
-    /* The content wrapper owns between-turn flex layout. */
     flex: 0 0 auto;
-    /* PR5 CHAT-TURN-SPACING-0: uniform 12px within-turn gap, matching the
-       between-turn gap (.maka-chatContent) — one density, no between/within
-       split. */
     gap: var(--space-3);
     max-width: var(--maka-reading-measure);
     margin: 0 auto;
@@ -1397,17 +1412,21 @@
   }
 
   /* ChatReasoning is ejected from Astryx lab 0.1.9 because lab is canary-only.
-     Core's atom sheet already contains every compiled StyleX atom except the
-     five shimmer declarations below; these are copied verbatim from lab.css. */
-  @keyframes x1ofn8cw-B {
+     Its streaming-label sweep is Maka-local: background-position cannot run on
+     the compositor, so upstream's linear timing repaints the glyph-clipped
+     gradient every frame for the whole turn. `steps(60)` holds the same look
+     at ~15fps — measured ~4x cheaper on one label. */
+  @keyframes maka-reasoning-shimmer {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
   }
-  .xct3ic7:not(#\#):not(#\#):not(#\#) { background-image: linear-gradient(90deg, var(--color-text-secondary) 0%, var(--color-text-disabled) 50%, var(--color-text-secondary) 100%); }
-  .xakli9p:not(#\#):not(#\#):not(#\#) { background-size: 200% 100%; }
-  .x1ta4xzc:not(#\#):not(#\#):not(#\#) { background-clip: text; }
-  .x3mlza6:not(#\#):not(#\#):not(#\#) { animation-name: x1ofn8cw-B; }
-  .xeaay5l:not(#\#):not(#\#):not(#\#) { animation-duration: 4s; }
+  .maka-reasoning-shimmer {
+    background-image: linear-gradient(90deg, var(--color-text-secondary) 0%, var(--color-text-disabled) 50%, var(--color-text-secondary) 100%);
+    background-size: 200% 100%;
+    background-clip: text;
+    color: transparent;
+    animation: maka-reasoning-shimmer 4s steps(60) infinite;
+  }
 
   /* ---- Tool activity ---------------------------------------------- */
 
@@ -1447,10 +1466,9 @@
 
 /* `maka-text-shimmer` and the `TextShimmer` primitive it drove are gone. The
    sweep-across-glyphs idiom is Astryx's: its `ChatReasoning` shimmers its own
-   streaming label off `x1ofn8cw-B` above, and that atom is the one this repo
-   copies from lab.css. A second, faster sweep on the turn's status line put two
-   of them a few pixels apart at different speeds, which read as two things
-   competing rather than one turn working. */
+   streaming label via `.maka-reasoning-shimmer` above. A second, faster sweep
+   on the turn's status line put two of them a few pixels apart at different
+   speeds, which read as two things competing rather than one turn working. */
 
 /* Shared short opacity entrance used by continuing and tool-settle cues. */
 @keyframes maka-stream-fade-in {

@@ -26,6 +26,7 @@ import { AstryxLocaleProvider, LocaleProvider, ToastProvider } from '@maka/ui';
 import type { SessionTurnAccessRequest } from '@maka/runtime-host/protocol';
 import {
   SessionCollaborationServicesProvider,
+  createFakeSessionCollaborationServices,
   SessionTurnRequestComposer,
   type SessionCollaborationServices,
 } from '../../renderer/features/session-collaboration/testing.js';
@@ -79,12 +80,16 @@ test('keeps a newer Guest draft across remount when an old request settles later
     state: { kind: 'pending' },
   };
   const services: SessionCollaborationServices = {
+    ...createFakeSessionCollaborationServices(),
     importInvitation: async () => ({ kind: 'connected', mountId: 'unused' }),
     cancelImport: async () => 'cancelled',
     readInvitationClipboard: async () => '',
     listMounts: async () => [],
     subscribeMountChanges: () => () => undefined,
     removeMount: async () => undefined,
+    retryMount: async () => undefined,
+    renameMount: async () => undefined,
+    renamePrincipal: async () => ({ renamed: true }),
     requestTurn: async () => {
       throw new Error('connection lost after dispatch');
     },
@@ -171,12 +176,16 @@ test('resumes an in-flight Guest request across remount without submitting it tw
     state: { kind: 'pending' },
   };
   const services: SessionCollaborationServices = {
+    ...createFakeSessionCollaborationServices(),
     importInvitation: async () => ({ kind: 'connected', mountId: 'unused' }),
     cancelImport: async () => 'cancelled',
     readInvitationClipboard: async () => '',
     listMounts: async () => [],
     subscribeMountChanges: () => () => undefined,
     removeMount: async () => undefined,
+    retryMount: async () => undefined,
+    renameMount: async () => undefined,
+    renamePrincipal: async () => ({ renamed: true }),
     requestTurn: async () => {
       requestCount += 1;
       return requestResult;

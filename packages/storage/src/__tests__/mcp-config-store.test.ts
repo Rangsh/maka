@@ -19,7 +19,7 @@
 
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
@@ -34,6 +34,24 @@ const roots: string[] = [];
 afterEach(async () =>
   Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))),
 );
+
+test('a subscriber hears when watching begins, then once per replacement until it unsubscribes', async () => {
+  const root = await tempRoot();
+  const reader = createMcpConfigStore(root);
+  const writer = createMcpConfigStore(root);
+  await reader.get();
+  const notifications: Array<Error | undefined> = [];
+  const unsubscribe = reader.subscribeChanges((error) => notifications.push(error));
+  await waitUntil(() => notifications.length === 1);
+  await writer.upsert('filesystem', { command: 'npx' });
+  await waitUntil(() => notifications.length > 1);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.deepEqual(notifications, [undefined, undefined]);
+  unsubscribe();
+  await writer.remove('filesystem');
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(notifications.length, 2);
+});
 
 test('creates and atomically updates a Claude-compatible mcp.json', async () => {
   const root = await tempRoot();
@@ -56,6 +74,15 @@ test('creates and atomically updates a Claude-compatible mcp.json', async () => 
     assert.equal((await stat(join(root, 'mcp.json'))).mode & 0o777, 0o600);
   await store.remove('filesystem');
   assert.deepEqual((await store.get()).mcpServers, {});
+});
+
+test('leaves no temp file behind after writes', async () => {
+  const root = await tempRoot();
+  const store = createMcpConfigStore(root);
+  await store.upsert('filesystem', { command: 'npx', args: ['-y', 'server'] });
+  await store.remove('filesystem');
+  const strays = (await readdir(root)).filter((entry) => entry.endsWith('.tmp'));
+  assert.deepEqual(strays, []);
 });
 
 test('reads version 1 without rewriting and persists version 3 on the next mutation', async () => {
@@ -470,13 +497,19 @@ test('normalizes and bounds the remote oauth block', async () => {
     mcpServers: {
       notion: {
         url: 'https://mcp.notion.com/mcp',
-        oauth: { clientId: 'abc', scopes: ['read', 'write'], callbackPort: 33389 },
+        oauth: {
+          issuer: 'https://auth.example/tenant',
+          clientId: 'abc',
+          scopes: ['read', 'write'],
+          callbackPort: 33389,
+        },
       },
     },
   });
   const notion = normalized.mcpServers.notion;
   assert.ok(notion && 'url' in notion);
   assert.deepEqual(notion.oauth, {
+    issuer: 'https://auth.example/tenant',
     clientId: 'abc',
     scopes: ['read', 'write'],
     callbackPort: 33389,
@@ -539,7 +572,7 @@ test('normalizes and bounds the remote oauth block', async () => {
     ['read', 'a\tb'],
     ['read"admin'],
     ['read\\admin'],
-    ['readadmin'],
+    ['read\u0001admin'],
     ['café'],
   ]) {
     assert.throws(
@@ -591,4 +624,12 @@ async function tempRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'maka-mcp-store-'));
   roots.push(root);
   return root;
+}
+
+async function waitUntil(condition: () => boolean, timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting for condition');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }

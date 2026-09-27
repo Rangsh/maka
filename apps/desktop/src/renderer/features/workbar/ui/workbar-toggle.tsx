@@ -17,16 +17,17 @@
  * under the License.
  */
 
+import type { WorkbarTogglePosition } from '@maka/core/settings';
+import type { WorkbarHostModel } from './workbar-host';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { IconButton, useUiLocale } from '@maka/ui';
 import { PanelRightClose, PanelRightOpen } from '@maka/ui/icons';
 import { getShellCopy } from '../../../locales/shell-copy';
 
-/** Shared titlebar/panel toggle for the Workbar column. */
+/** The same control in the titlebar when collapsed and the panel when open. */
 export function WorkbarToggle(props: {
   collapsed: boolean;
-  className?: string;
   onToggle(): void;
 }) {
   const copy = getShellCopy(useUiLocale()).chrome;
@@ -43,12 +44,8 @@ export function WorkbarToggle(props: {
           />
         )}
         variant="ghost"
-        size="md"
-        className={
-          props.className
-            ? `maka-titlebar-action ${props.className}`
-            : 'maka-titlebar-action'
-        }
+        size="sm"
+        className="maka-titlebar-action"
         onClick={props.onToggle}
         aria-expanded={!props.collapsed}
       />
@@ -58,12 +55,11 @@ export function WorkbarToggle(props: {
 
 /** Titlebar restore affordance shown only while the Workbar is collapsed. */
 export function WorkbarTitlebarActions(props: {
-  available: boolean;
-  collapsed: boolean;
-  onToggle(): void;
+  model: Pick<WorkbarHostModel, 'activeId' | 'hidden' | 'rightCollapsed' | 'onToggleRightPanel'>;
+  togglePosition: WorkbarTogglePosition;
 }) {
   const copy = getShellCopy(useUiLocale()).chrome;
-  if (!props.available || !props.collapsed) return null;
+  if (props.togglePosition !== 'titlebar' || props.model.hidden || !props.model.activeId || !props.model.rightCollapsed) return null;
 
   return (
     <div
@@ -71,7 +67,7 @@ export function WorkbarTitlebarActions(props: {
       role="toolbar"
       aria-label={copy.workspaceActions}
     >
-      <WorkbarToggle collapsed onToggle={props.onToggle} />
+      <WorkbarToggle collapsed onToggle={props.model.onToggleRightPanel} />
     </div>
   );
 }

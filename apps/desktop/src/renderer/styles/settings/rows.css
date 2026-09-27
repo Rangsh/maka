@@ -147,6 +147,13 @@
   max-width: var(--settings-row-end-cap);
 }
 
+/* A badge can replace a neighboring action in the same slot. Keep its label
+   on the action type tier so the settled state does not visually shrink after
+   the user clicks the button. */
+.settingsActionSlotBadge {
+  font: var(--maka-text-label);
+}
+
 /* A Selector layer is min-width: anchor-size(width), but its intrinsic option
    width may still make it wider than the right-aligned end slot. The selected
    font decides that intrinsic width, so a label that fits on macOS can push
@@ -266,3 +273,7 @@
 .maka-import-selection-spacer {
   flex: 1 1 auto;
 }
+
+.jevAdvancedSettings { min-width: 0; }
+.jevAdvancedSettings > summary { padding-block: var(--space-3); cursor: default; }
+.jevAdvancedSettings > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

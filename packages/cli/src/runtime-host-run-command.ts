@@ -502,7 +502,10 @@ class RuntimeHostRunRuntime implements MakaRunRuntime {
   ): void {
     const active = this.#activeTurn;
     if (!active || active.sessionId !== sessionId || active.turnId !== turnId) return;
-    active.outcome = classifierFromStoredTurn(messages, turnId, active.runId);
+    // A read of a running Turn stops wherever the transcript has been
+    // committed, so it can restore what the live stream missed but never
+    // proves that what the stream already delivered is gone.
+    acceptStoredTurn(active.outcome, messages, turnId);
   }
 
   #waitForGraphTurnTerminal(turnId: string): Promise<readonly StoredMessage[]> {
@@ -562,7 +565,7 @@ function runtimeHostSessionSummaries(items: readonly SessionCatalogItem[]): Sess
 }
 
 type TurnOutcomeObservation =
-  | { readonly kind: 'output'; readonly text: string }
+  | { readonly kind: 'output'; readonly text: string; readonly source: 'live' | 'stored' }
   | {
       readonly kind: 'terminal';
       readonly update: 'replace' | 'if_unset';
@@ -575,12 +578,6 @@ type TurnOutcomeObservation =
       readonly failure: NonNullable<MakaRunOutcome['failure']>;
     }
   | {
-      readonly kind: 'tool_call';
-      readonly toolUseId: string;
-      readonly stepId: string | undefined;
-      readonly toolName: string;
-    }
-  | {
       readonly kind: 'tool_result';
       readonly toolUseId: string;
       readonly outcome: 'sandbox_failure' | 'success';
@@ -590,20 +587,10 @@ type TerminalOutcomeObservation = Extract<TurnOutcomeObservation, { kind: 'termi
 
 class TurnOutcomeClassifier {
   readonly #outcomeId: string;
-  readonly #callByToolUseId = new Map<
-    string,
-    { readonly stepId: string | undefined; readonly toolName: string }
-  >();
-  readonly #unresolvedSandboxFailures = new Map<
-    string,
-    {
-      readonly failedStepId: string | undefined;
-      readonly failedToolName: string | undefined;
-    }
-  >();
+  readonly #unresolvedSandboxFailures = new Set<string>();
   #finalOutput: string | undefined;
+  #finalOutputFromLive = false;
   #terminal: TerminalOutcomeObservation | undefined;
-  #sandboxBoundaryRecovered = false;
 
   constructor(outcomeId: string) {
     this.#outcomeId = outcomeId;
@@ -614,43 +601,26 @@ class TurnOutcomeClassifier {
       case undefined:
         return;
       case 'output':
+        // A subscriber is delivered in Host order, so the stream's last answer
+        // is the Turn's last answer. A transcript read stops wherever the Host
+        // had committed, so it can supply an answer the stream never carried
+        // but can never overrule one it did.
+        if (observation.source === 'stored' && this.#finalOutputFromLive) return;
         this.#finalOutput = observation.text;
+        this.#finalOutputFromLive = observation.source === 'live';
         return;
       case 'terminal':
         if (observation.update === 'replace' || this.#terminal === undefined) {
           this.#terminal = observation;
         }
         return;
-      case 'tool_call':
-        this.#callByToolUseId.set(observation.toolUseId, {
-          stepId: observation.stepId,
-          toolName: observation.toolName,
-        });
-        return;
       case 'tool_result': {
-        const call = this.#callByToolUseId.get(observation.toolUseId);
         if (observation.outcome === 'sandbox_failure') {
-          this.#unresolvedSandboxFailures.set(observation.toolUseId, {
-            failedStepId: call?.stepId,
-            failedToolName: call?.toolName,
-          });
-          return;
+          this.#unresolvedSandboxFailures.add(observation.toolUseId);
         }
-        const unresolved = [...this.#unresolvedSandboxFailures.values()];
-        // The wire has no retry identity. A later success can only prove recovery
-        // when there is exactly one unresolved candidate.
-        if (
-          observation.outcome === 'success' &&
-          call?.toolName !== 'request_sandbox_boundary' &&
-          unresolved.length === 1 &&
-          call?.stepId !== undefined &&
-          unresolved[0]?.failedStepId !== undefined &&
-          call.stepId !== unresolved[0].failedStepId &&
-          call.toolName === unresolved[0].failedToolName
-        ) {
-          this.#unresolvedSandboxFailures.clear();
-          this.#sandboxBoundaryRecovered = true;
-        }
+        // No clearing path: `maka run` denies every widening request, so the
+        // boundary cannot move mid-Turn and a later success cannot prove that
+        // a blocked call recovered. The failure stays unresolved to the end.
         return;
       }
     }
@@ -662,12 +632,7 @@ class TurnOutcomeClassifier {
     const terminal = this.#terminal;
     if (!terminal && incomplete === 'pending') return undefined;
     const completed = terminal?.status === 'completed';
-    const sandboxBoundary =
-      this.#unresolvedSandboxFailures.size > 0
-        ? 'unresolved'
-        : this.#sandboxBoundaryRecovered
-          ? 'recovered'
-          : 'none';
+    const sandboxBoundary = this.#unresolvedSandboxFailures.size > 0 ? 'unresolved' : 'none';
     const failure =
       terminal?.status === 'failed'
         ? terminal.failure
@@ -687,7 +652,7 @@ class TurnOutcomeClassifier {
 
 function observationFromSessionEvent(event: SessionEvent): TurnOutcomeObservation | undefined {
   if (event.type === 'text_complete' && event.text.trim().length > 0) {
-    return { kind: 'output', text: event.text };
+    return { kind: 'output', text: event.text, source: 'live' };
   }
   if (event.type === 'error') {
     return {
@@ -708,20 +673,12 @@ function observationFromSessionEvent(event: SessionEvent): TurnOutcomeObservatio
   if (event.type === 'complete') {
     return observationFromCompleteEvent(event);
   }
-  if (event.type === 'tool_start') {
-    return {
-      kind: 'tool_call',
-      toolUseId: event.toolUseId,
-      stepId: event.stepId,
-      toolName: event.toolName,
-    };
-  }
   return event.type === 'tool_result' ? observationFromToolResult(event) : undefined;
 }
 
 function observationFromStoredMessage(message: StoredMessage): TurnOutcomeObservation | undefined {
   if (message.type === 'assistant' && message.text.trim().length > 0) {
-    return { kind: 'output', text: message.text };
+    return { kind: 'output', text: message.text, source: 'stored' };
   }
   if (message.type === 'turn_state' && message.status === 'completed') {
     return { kind: 'terminal', update: 'replace', status: 'completed' };
@@ -743,14 +700,6 @@ function observationFromStoredMessage(message: StoredMessage): TurnOutcomeObserv
         class: message.errorClass ?? 'runtime_error',
         message: 'Agent Graph final Turn failed',
       },
-    };
-  }
-  if (message.type === 'tool_call') {
-    return {
-      kind: 'tool_call',
-      toolUseId: message.id,
-      stepId: message.stepId,
-      toolName: message.toolName,
     };
   }
   return message.type === 'tool_result' ? observationFromToolResult(message) : undefined;
@@ -828,10 +777,18 @@ function classifierFromStoredTurn(
   outcomeId: string,
 ): TurnOutcomeClassifier {
   const classifier = new TurnOutcomeClassifier(outcomeId);
+  acceptStoredTurn(classifier, messages, turnId);
+  return classifier;
+}
+
+function acceptStoredTurn(
+  classifier: TurnOutcomeClassifier,
+  messages: readonly StoredMessage[],
+  turnId: string,
+): void {
   for (const message of messages) {
     if (message.turnId === turnId) classifier.accept(observationFromStoredMessage(message));
   }
-  return classifier;
 }
 
 class NonInteractiveInteractionController {
@@ -841,8 +798,7 @@ class NonInteractiveInteractionController {
   readonly #tasks = new Set<Promise<void>>();
   readonly #unsubscribe: () => void;
   #failure: Error | undefined;
-  readonly #failureSignal: Promise<Error>;
-  #publishFailure!: (error: Error) => void;
+  readonly #failureWaiters = new Set<(error: Error) => void>();
 
   constructor(
     driver: RuntimeHostMakaSessionDriver,
@@ -850,15 +806,25 @@ class NonInteractiveInteractionController {
   ) {
     this.#driver = driver;
     this.#stop = stop;
-    this.#failureSignal = new Promise((resolve) => {
-      this.#publishFailure = resolve;
-    });
     this.#unsubscribe = driver.subscribePendingInteractions((pending) => this.#accept(pending));
   }
 
   race<T>(operation: Promise<T>): Promise<T> {
     this.throwIfFailed();
-    return Promise.race([operation, this.#failureSignal.then((error) => Promise.reject(error))]);
+    return new Promise((resolve, reject) => {
+      this.#failureWaiters.add(reject);
+      // Detach completed waits so the controller does not retain consumed event payloads.
+      operation.then(
+        (value) => {
+          this.#failureWaiters.delete(reject);
+          resolve(value);
+        },
+        (error) => {
+          this.#failureWaiters.delete(reject);
+          reject(error);
+        },
+      );
+    });
   }
 
   async settle(): Promise<void> {
@@ -905,7 +871,8 @@ class NonInteractiveInteractionController {
   #fail(error: Error): void {
     if (this.#failure) return;
     this.#failure = error;
-    this.#publishFailure(error);
+    for (const reject of this.#failureWaiters) reject(error);
+    this.#failureWaiters.clear();
   }
 }
 

@@ -28,9 +28,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
-import { DEEP_RESEARCH_SESSION_LABEL, DEEP_RESEARCH_SESSION_NAME } from '@maka/core/deep-research';
 import { openInteractiveArtifactStoreForWrite } from '@maka/storage/artifact-stores';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
+import { seedInvocation } from '@maka/runtime/test-only/invocation-fixture';
 import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtime-policy-stores';
 import {
   resolveRootControlNamespace,
@@ -111,7 +111,7 @@ test('two Clients share stable Session creation, CAS configuration, and catalog 
         createInput.sessionId,
       );
       assert.equal(created.id, createInput.sessionId);
-      assert.equal(created.permissionMode, 'ask');
+      assert.equal(created.permissionMode, 'bypass');
       assert.equal(created.labelsTruncated, false);
       assert.deepEqual(
         await desktop.request('runtime.resource.query', {
@@ -214,36 +214,40 @@ test('two Clients share stable Session creation, CAS configuration, and catalog 
       });
       if ('kind' in planSession) assert.fail('Plan Session must be wire-representable');
       assert.equal(planSession.collaborationMode, 'plan');
-      const researchSession = requireSessionProjection(
+
+      const sandboxChoice = requireSessionProjection(
         await desktop.request('session.create', {
-          sessionId: 'deep-research-session',
-          workspace: { kind: 'host_path', path: root },
-          mode: 'deep_research',
-          name: 'Caller override',
-          labels: ['customer-label'],
-          modelTarget: { kind: 'default' },
-          permissionMode: 'bypass',
+          ...createInput,
+          sessionId: 'explicit-sandbox-session',
+          permissionMode: 'ask',
         }),
       );
-      assert.equal(researchSession.name, DEEP_RESEARCH_SESSION_NAME);
-      assert.deepEqual(researchSession.labels, ['customer-label', DEEP_RESEARCH_SESSION_LABEL]);
-      assert.equal(researchSession.permissionMode, 'explore');
+      assert.equal(sandboxChoice.permissionMode, 'ask');
 
       const policy = await tui.request('runtime.policy.query', {});
       const changedPolicy = await tui.request('runtime.policy.mutate', {
         expectedRevision: policy.revision,
         operation: {
           kind: 'set_chat_defaults',
-          value: { permissionMode: 'bypass' },
+          value: { permissionMode: 'ask' },
         },
       });
       assert.equal(changedPolicy.kind, 'committed');
       assert.deepEqual(await tui.request('session.create', createInput), created);
 
+      const inheritedSandbox = requireSessionProjection(
+        await desktop.request('session.create', {
+          ...createInput,
+          sessionId: 'inherited-sandbox-session',
+        }),
+      );
+      assert.equal(inheritedSandbox.permissionMode, 'ask');
+
       const subscription = await tui.openSessionSubscription({
         sessionId: created.id,
         transcript: { kind: 'none' },
       });
+      await subscription.ready();
       const iterator = subscription[Symbol.asyncIterator]();
       assert.equal(subscription.snapshot.session.metadataRevision, created.revision);
       await assert.rejects(
@@ -282,7 +286,7 @@ test('two Clients share stable Session creation, CAS configuration, and catalog 
           sessionId: created.id,
           expectedRevision: configurationRevision,
           patch: {
-            permissionMode: 'bypass',
+            permissionMode: 'ask',
             orchestrationMode: 'default',
           },
         }),
@@ -476,6 +480,7 @@ test('two Clients share stable Session creation, CAS configuration, and catalog 
         sessionId: created.id,
         transcript: { kind: 'none' },
       });
+      await retirementSubscription.ready();
       const retirementIterator = retirementSubscription[Symbol.asyncIterator]();
       const beforeArchive = await querySession(desktop, created.id);
       assert.equal(beforeArchive.status, 'active');
@@ -824,25 +829,45 @@ async function seedAuthority(
       model: 'fake-model',
       permissionMode: 'ask',
     });
-    await execution.sessionStore.appendMessages(unread.id, [
-      { type: 'user', id: 'message-1', turnId: 'turn-1', ts: 1, text: 'one' },
+    await seedInvocation(execution.runtimeEventStore, {
+      sessionId: unread.id,
+      runId: 'run-1',
+      turnId: 'turn-1',
+      openedAt: 1,
+    });
+    for (const event of [
       {
-        type: 'assistant',
+        id: 'message-1',
+        ts: 1,
+        role: 'user' as const,
+        author: 'user' as const,
+        content: { kind: 'text' as const, text: 'one' },
+      },
+      {
         id: 'message-2',
-        turnId: 'turn-1',
         ts: 2,
-        text: 'two',
-        modelId: 'fake-model',
+        role: 'model' as const,
+        author: 'agent' as const,
+        content: { kind: 'text' as const, text: 'two' },
       },
       {
-        type: 'tool_call',
-        id: 'tool-1',
-        turnId: 'turn-1',
+        id: 'run-1-terminal',
         ts: 3,
-        toolName: 'Read',
-        args: {},
+        role: 'system' as const,
+        author: 'system' as const,
+        status: 'completed' as const,
+        actions: { endInvocation: true },
       },
-    ]);
+    ]) {
+      await execution.runtimeEventStore.appendRuntimeEvent(unread.id, 'run-1', {
+        sessionId: unread.id,
+        invocationId: 'run-1',
+        runId: 'run-1',
+        turnId: 'turn-1',
+        partial: false,
+        ...event,
+      });
+    }
     await execution.sessionStore.updateHeader(unread.id, {
       hasUnread: true,
       lastMessageAt: 2,
@@ -887,7 +912,6 @@ async function seedAuthority(
     });
     const artifacts = await openInteractiveArtifactStoreForWrite(owner.lease);
     const todos = await openInteractiveSessionTodoStoreForWrite(owner.lease);
-    await artifacts.recover();
     await Promise.all([
       artifacts.create({
         id: 'retirement-artifact',
@@ -897,7 +921,7 @@ async function seedAuthority(
         kind: 'file',
         content: 'remove me',
         mimeType: 'text/plain',
-        source: 'fixture',
+        source: 'tool_result',
         now: 1,
       }),
       artifacts.create({
@@ -908,7 +932,7 @@ async function seedAuthority(
         kind: 'file',
         content: 'recover cleanup',
         mimeType: 'text/plain',
-        source: 'fixture',
+        source: 'tool_result',
         now: 2,
       }),
       todos.replaceAll(retirement.id, [{ content: 'Remove retirement task', status: 'pending' }]),
@@ -996,7 +1020,6 @@ async function assertRetirementCleanup(
   try {
     const execution = await openInteractiveExecutionStoresForWrite(owner.lease);
     const artifacts = await openInteractiveArtifactStoreForWrite(owner.lease);
-    await artifacts.recover();
     assert.deepEqual(await execution.sessionStore.listPendingSessionRetirementCleanupIds(), []);
     for (const sessionId of sessionIds) {
       assert.equal((await artifacts.listPage(sessionId, { offset: 0, limit: 1 })).total, 0);

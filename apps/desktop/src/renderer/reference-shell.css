@@ -96,7 +96,8 @@
   box-shadow: none;
 }
 
-.agents-chat-panel {
+.agents-chat-panel,
+.agents-chat-view-root {
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -104,10 +105,40 @@
   flex-direction: column;
 }
 
-.agents-chat-view-root {
-  min-width: 0;
-  min-height: 0;
+/*
+ * Settings › Import/export tasks — the export list's subagent tree.
+ *
+ * The rule belongs to the list that holds the children, so it is exactly as
+ * tall as the subtree it encloses. An earlier version drew one mark beside each
+ * child: that marks the rows and draws nothing between them, so a subtree read
+ * as unrelated rows that happened to start further right.
+ */
+.maka-export-tree,
+.maka-export-subtree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.maka-export-subtree {
+  margin-inline-start: var(--spacing-3);
+  padding-inline-start: var(--spacing-4);
+  border-inline-start: 1px solid var(--border-soft);
+}
+
+.maka-export-row {
   display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-4);
+  padding-block: var(--spacing-2);
+}
+
+.maka-export-name {
+  font-size: var(--font-size-base);
+}
+
+.maka-export-carries {
+  font-size: var(--font-size-sm);
+  color: var(--muted-foreground);
 }
