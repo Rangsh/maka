@@ -1455,7 +1455,15 @@ export class AiSdkTurn {
         agentLoop: for (;;) {
           let stepSawVisibleText = false;
           let stepSawThinking = false;
+          // A Shift+Enter steer is user progress even when the next model step
+          // repeats the same textless tool result. Reset before the signature
+          // check so a mid-loop steer cannot be charged as the third identical
+          // empty step (#4083 review).
+          const injectedBeforeDrain = this.injectedSteeringMessages.length;
           await this.drainSteeringInto(input, queue);
+          if (this.injectedSteeringMessages.length > injectedBeforeDrain) {
+            clearEmptyStepProgress();
+          }
           if (this.deps.backend.loadTurnRuntimeEvents) {
             requestMessages = await loadDurableTurnProjection();
           } else {

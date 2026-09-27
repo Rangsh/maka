@@ -86,3 +86,42 @@ test('returns undefined when stop fails so plain-Enter send can abort', async ()
     target.window = previousWindow;
   }
 });
+
+test('stops the captured Session when the active id changes during the await', async () => {
+  const target = globalThis as unknown as { window?: unknown };
+  const previousWindow = target.window;
+  const stopped: string[] = [];
+  const activeIdRef = { current: 'session-a' as string | undefined };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  target.window = {
+    maka: {
+      sessions: {
+        stop: async (sessionId: string) => {
+          stopped.push(sessionId);
+          await gate;
+          return { kind: 'interrupted', retractedMessageIds: [] };
+        },
+      },
+    },
+  };
+  try {
+    const stop = createAppShellStopAction({
+      uiLocale: 'en',
+      activeIdRef,
+      stopPending: { claim: () => true, release: () => undefined },
+      removeTransientMessage: () => undefined,
+      toastApi: { error() {} },
+    });
+
+    const pending = stop('session-a');
+    activeIdRef.current = 'session-b';
+    release();
+    assert.equal(await pending, true);
+    assert.deepEqual(stopped, ['session-a']);
+  } finally {
+    target.window = previousWindow;
+  }
+});

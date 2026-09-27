@@ -39,7 +39,7 @@ export function createAppShellStopAction(deps: {
   stopPending: SessionPendingClaim;
   removeTransientMessage: (sessionId: string, messageId: string) => void;
   toastApi: ToastApi;
-}): () => Promise<boolean | void> {
+}): (sessionId?: string) => Promise<boolean | void> {
   const {
     uiLocale,
     activeIdRef,
@@ -48,8 +48,11 @@ export function createAppShellStopAction(deps: {
     toastApi,
   } = deps;
 
-  async function stop() {
-    const sessionId = activeIdRef.current;
+  async function stop(targetSessionId?: string) {
+    // Prefer an explicit owner (interrupt-then-send captures the submitting
+    // Session before awaiting settlement) so a navigation during the await
+    // cannot retarget the stop at whichever Session is active afterward.
+    const sessionId = targetSessionId ?? activeIdRef.current;
     if (!sessionId || !stopPending.claim(sessionId)) return;
     try {
       const result = await window.maka.sessions.stop(sessionId, { source: 'stop_button' });

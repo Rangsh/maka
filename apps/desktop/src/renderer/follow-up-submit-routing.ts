@@ -32,6 +32,19 @@ export function hasActiveTurnAtSubmit(input: {
   return input.runningTurnIds?.some((turnId) => turnId !== input.liveTurn?.turnId) === true;
 }
 
+/**
+ * After plain-Enter interrupts a live turn, the root send must still target the
+ * Session that was submitted. `sessions.stop` awaits terminal settlement, so the
+ * user can navigate away while that await is open — refuse the send rather than
+ * delivering the draft to whichever Session is active afterward (#4083 review).
+ */
+export function shouldContinueRootSendAfterInterrupt(input: {
+  submittingSessionId: string;
+  activeSessionId: string | undefined;
+}): boolean {
+  return input.activeSessionId === input.submittingSessionId;
+}
+
 export function mergeWorkspaceReferences(
   text: string,
   live: readonly WorkspaceFileReferencePosition[] | undefined,

@@ -112,6 +112,7 @@ import {
   hasActiveTurnAtSubmit,
   mergeWorkspaceReferences,
   rebaseWorkspaceFileReferences,
+  shouldContinueRootSendAfterInterrupt,
 } from './follow-up-submit-routing';
 import {
   PlanExecutionPanel,
@@ -2106,8 +2107,20 @@ function AppShellContent({
     // (revision / slash / compact) runs first — an inadmissible submit must
     // not kill the active turn. Host `turn.interrupt` awaits the cancelled
     // turn's terminal fact before resolving, so the Session lane is free for
-    // the root send below.
-    if (sessionId && hasActiveTurn && !slashCommand && !(await stop())) return false;
+    // the root send below. Pass the captured Session into stop and refuse the
+    // send if the user navigated away during that await — otherwise `send()`
+    // would re-read `activeIdRef` and deliver the draft to the wrong Session.
+    if (sessionId && hasActiveTurn && !slashCommand) {
+      if (!(await stop(sessionId))) return false;
+      if (
+        !shouldContinueRootSendAfterInterrupt({
+          submittingSessionId: sessionId,
+          activeSessionId: activeIdRef.current,
+        })
+      ) {
+        return false;
+      }
+    }
     const ok = await send(text, pending, {
       ...directoryOptions,
       ...(quotes ? { quotes } : {}),

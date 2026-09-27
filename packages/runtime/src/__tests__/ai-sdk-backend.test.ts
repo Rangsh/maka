@@ -5886,6 +5886,104 @@ describe('AiSdkBackend model history', () => {
     assert.equal(events.filter((event) => event.type === 'tool_start').length, 5);
   });
 
+  test('resets the empty-step streak when a mid-loop steer is injected', async () => {
+    // After two identical textless tool steps, a Shift+Enter steer that lands
+    // at the top-of-loop drain is user progress. Without a reset, the next
+    // identical tool result would be charged as the third empty step and trip
+    // empty_step_loop even though the user redirected the turn (#4083 review).
+    let calls = 0;
+    let pulls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        calls += 1;
+        if (calls > 4) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                { type: 'stream-start', warnings: [] },
+                { type: 'text-start', id: 'text-final' },
+                { type: 'text-delta', id: 'text-final', delta: 'done' },
+                { type: 'text-end', id: 'text-final' },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: emptyUsage(),
+                },
+              ],
+              initialDelayInMs: null,
+              chunkDelayInMs: null,
+            }),
+          };
+        }
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'tool-call',
+                toolCallId: `tool-${calls}`,
+                toolName: 'Read',
+                input: JSON.stringify({ path: 'notes.md' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: emptyUsage(),
+              },
+            ],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const durable = durableTurnHarness('turn-empty-survive-steer-reset', 'keep going');
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events = await drainDurably(
+      backend.send(
+        durable.input({
+          pullSteering: () => {
+            pulls += 1;
+            // Inject after two completed identical empty steps — the third
+            // top-of-loop drain, immediately before the step that would
+            // otherwise trip the consecutive cap.
+            if (pulls !== 3) return [];
+            return [
+              {
+                id: 'lease-steer-reset',
+                messageId: 'message-steer-reset',
+                content: { text: 'try a different path' },
+              },
+            ];
+          },
+          ackSteering: () => {},
+          nackSteering: () => {},
+        }),
+      ),
+      durable,
+    );
+
+    assert.equal(events.filter((event) => event.type === 'steering_message').length, 1);
+    // Two empty steps, steer reset, two more empty steps, then a text finish —
+    // never three consecutive empty signatures without the intervening steer.
+    assert.equal(calls, 5);
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'end_turn');
+    assert.equal(events.filter((event) => event.type === 'tool_start').length, 4);
+  });
+
   test('does not trip the empty-step cap when a repeated request yields a new result', async () => {
     let calls = 0;
     let resultN = 0;

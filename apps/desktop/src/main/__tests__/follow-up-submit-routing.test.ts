@@ -22,6 +22,7 @@ import { describe, it } from 'node:test';
 import {
   hasActiveTurnAtSubmit,
   mergeWorkspaceReferences,
+  shouldContinueRootSendAfterInterrupt,
 } from '../../renderer/follow-up-submit-routing.js';
 
 describe('follow-up submit routing', () => {
@@ -42,6 +43,23 @@ describe('follow-up submit routing', () => {
         runningTurnIds: ['turn-1'],
       }),
       false,
+    );
+  });
+
+  it('refuses the root send when the active Session changes during interrupt', () => {
+    assert.equal(
+      shouldContinueRootSendAfterInterrupt({
+        submittingSessionId: 'session-a',
+        activeSessionId: 'session-b',
+      }),
+      false,
+    );
+    assert.equal(
+      shouldContinueRootSendAfterInterrupt({
+        submittingSessionId: 'session-a',
+        activeSessionId: 'session-a',
+      }),
+      true,
     );
   });
 
