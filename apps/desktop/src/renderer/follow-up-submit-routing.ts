@@ -24,12 +24,31 @@ export interface WorkspaceFileReferencePosition {
   start: number;
 }
 
+export type LiveTurnAtSubmit = {
+  turnId: string;
+  terminal?: boolean;
+};
+
+/**
+ * Whether a plain-Enter root send must interrupt first.
+ *
+ * `liveTurns` is the Session's live-turn buffer (active and retained terminal
+ * projections). Any non-terminal entry means a live turn is still in flight.
+ * Running Host turn IDs that are not already accounted for by retained
+ * terminal projections also count as active — the arm can exist before React
+ * publishes streaming state, and a second turn can race a settled first.
+ */
 export function hasActiveTurnAtSubmit(input: {
-  liveTurn?: { turnId: string; terminal?: boolean };
+  liveTurns?: readonly LiveTurnAtSubmit[];
   runningTurnIds?: readonly string[];
 }): boolean {
-  if (input.liveTurn?.terminal !== true && input.liveTurn !== undefined) return true;
-  return input.runningTurnIds?.some((turnId) => turnId !== input.liveTurn?.turnId) === true;
+  if (input.liveTurns?.some((turn) => turn.terminal !== true) === true) return true;
+  const retainedTerminalIds = new Set(
+    (input.liveTurns ?? [])
+      .filter((turn) => turn.terminal === true)
+      .map((turn) => turn.turnId),
+  );
+  return input.runningTurnIds?.some((turnId) => !retainedTerminalIds.has(turnId)) === true;
 }
 
 /**
@@ -49,13 +68,13 @@ export function shouldContinueRootSendAfterInterrupt(input: {
 export async function interruptBeforeRootSend(input: {
   sessionId: string | undefined;
   slashCommand: unknown;
-  liveTurn?: { turnId: string; terminal?: boolean };
+  liveTurns?: readonly LiveTurnAtSubmit[];
   runningTurnIds?: readonly string[];
   activeSessionId: () => string | undefined;
   stop: (sessionId?: string) => Promise<boolean | void>;
 }): Promise<boolean> {
   if (!input.sessionId || input.slashCommand) return true;
-  if (!hasActiveTurnAtSubmit({ liveTurn: input.liveTurn, runningTurnIds: input.runningTurnIds })) {
+  if (!hasActiveTurnAtSubmit({ liveTurns: input.liveTurns, runningTurnIds: input.runningTurnIds })) {
     return true;
   }
   if (!(await input.stop(input.sessionId))) return false;

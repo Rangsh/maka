@@ -73,7 +73,7 @@ import * as Conversation from './features/conversation';
 import { deriveWorkspaceReadinessRecovery } from './workspace-readiness-recovery';
 import { AgentGraphPanel } from './agent-graph-panel';
 import { ChatComposerRegion, selectLatestRequestUsage } from './chat-composer-region';
-import { WorkbarHost, useWorkbarController } from './features/workbar';
+import { WorkbarHost, WorkbarProvider, WorkbarShellRoot, type WorkbarShellProjection } from './features/workbar';
 import { AppUpdateProvider } from './features/app-update/index.js';
 import * as Goals from './features/goals';
 import * as ModuleHub from './features/module-hub';
@@ -245,9 +245,13 @@ export function AppShell() {
                     {(overlays) => (
                       <SessionCollaboration.SessionCollaborationDialogRoot>
                         {(sharedSessionDialog) => (
-                          <AppShellContent
-                            {...{ taskEntry, overlays, sharedSessionDialog, uiLocale, uiLocaleOverride, setUiLocaleOverride, setUiLocalePreference }}
-                          />
+                          <WorkbarShellRoot>
+                            {(workbar) => (
+                              <AppShellContent
+                                {...{ taskEntry, overlays, sharedSessionDialog, workbar, uiLocale, uiLocaleOverride, setUiLocaleOverride, setUiLocalePreference }}
+                              />
+                            )}
+                          </WorkbarShellRoot>
                         )}
                       </SessionCollaboration.SessionCollaborationDialogRoot>
                     )}
@@ -277,6 +281,7 @@ function AppShellContent({
   taskEntry,
   overlays,
   sharedSessionDialog,
+  workbar: { bridge, commands, selectors, LiveContextUsageProbe },
   uiLocale,
   uiLocaleOverride,
   setUiLocaleOverride,
@@ -285,6 +290,7 @@ function AppShellContent({
   taskEntry: TaskEntryShellProjection;
   overlays: OverlaysShellProjection;
   sharedSessionDialog: SessionCollaborationDialogProjection;
+  workbar: WorkbarShellProjection;
   uiLocale: UiLocale;
   uiLocaleOverride: UiLocale | null;
   setUiLocaleOverride: Dispatch<SetStateAction<UiLocale | null>>;
@@ -332,6 +338,7 @@ function AppShellContent({
     sharedSessionActive,
     ownerActiveId,
     switchingSession,
+    queueSurface,
   } = useAppShellSessionWorkspace(toastApi);
   /* The shell's own reading of the catalog rides the membership set the list
    * hook already publishes — background row churn belongs to the rail, which
@@ -385,6 +392,7 @@ function AppShellContent({
     pickAttachments,
     attachFilePaths,
     restoreAttachments,
+    restoreDirectories,
     removeAttachment,
     clearSubmittedContext,
     imageNoticeLifecycle,
@@ -393,6 +401,7 @@ function AppShellContent({
     quotesForSend,
     addQuote,
     clearQuotes,
+    restoreQuotes,
     composerQuoteProps,
     chatViewQuoteProps,
   } = useComposerAttachments({
@@ -600,7 +609,6 @@ function AppShellContent({
    * recent workspace history so the home view is populated before the async
    * `app:info` round-trip completes on mount. */
   const persistedComposerDefaults = loadComposerDefaults();
-  const composerRef = useRef<ComposerHandle>(null);
   const openComposerModelPicker = useCallback(() => {
     composerRef.current?.openModelPicker();
   }, []);
@@ -655,9 +663,27 @@ function AppShellContent({
       }
     : undefined;
   const activeMessageQueue = activeId ? messageQueueBySession[activeId] : undefined;
-  /* The shell's reading of the active live turn: streaming/settled flags, the
-   * in-flight tool signal, and the #646 turn-wait cues, all derived from the
-   * semantic snapshot rather than the projection (#1985). */
+  const {
+    composer: composerRef,
+    transientMessages: transcriptTransientMessages,
+    restoreDraft: restoreLocalMessageDraft,
+    draftContextRestorer,
+    promoteQueuedEntry,
+    editQueuedEntry,
+    deleteQueuedEntry,
+    reorderQueuedEntries,
+  } = queueSurface;
+  // A retracted send hands its staged context back through the same keyed
+  // stores a picked file or quote would land in — keyed by Session, so the
+  // restore survives the owning Session navigating away mid-request.
+  draftContextRestorer.current = (targetSessionId, draft) => {
+    if (draft.attachments?.length) restoreAttachments(targetSessionId, draft.attachments);
+    if (draft.directoryReferences?.length) restoreDirectories(targetSessionId, draft.directoryReferences);
+    if (draft.quotes?.length) restoreQuotes(targetSessionId, draft.quotes);
+  };
+  // The shell's reading of the active live turn: streaming/settled flags, the
+  // in-flight tool signal, and the #646 turn-wait cues, all derived from the
+  // semantic snapshot rather than the projection (#1985).
   const {
     activeStreamingLive,
     activeStreamingMessageId,
@@ -932,7 +958,10 @@ function AppShellContent({
     sessionSettingIntent.overlay.permissionMode,
   );
   const activePermissionMode = activeBoundarySurface.permissionMode;
-  const planMode = usePlanModeState(ownerActiveId ? activeHostSession : undefined);
+  const planMode = usePlanModeState(
+    ownerActiveId ? activeHostSession : undefined,
+    sessionCatalogController,
+  );
   const planConversationItems = (planMode.state?.proposals ?? []).map((proposal) => ({
     id: proposal.proposalId,
     afterTurnId: proposal.turnId,
@@ -1166,24 +1195,6 @@ function AppShellContent({
       }),
     [toastApi],
   );
-  const workbar = useWorkbarController({
-    workHub: { enabled: workHubEnabled, active: workHubActive },
-    available: sessionsSelected && (workHubActive || Boolean(activeHostSession)),
-    layoutSessionId: activeId,
-    activeSession: activeHostSession,
-    projectId: currentProjectId,
-    projectAliases: currentProject?.aliases ?? [],
-    authoritativeSessionIds,
-    shellObscured,
-    modelChoices: chatModelChoices,
-    toastApi,
-    composerRef,
-    openNewTaskSurface,
-    openSessionInChat,
-    resolveWorkBoardTarget,
-    prepareWorkBoardDraft,
-  });
-  const { commands, selectors, LiveContextUsageProbe } = workbar;
 
   const exitWorkHub = useCallback(() => setWorkHubActive(false), []);
   const selectSessionSurface = useCallback(
@@ -1203,21 +1214,19 @@ function AppShellContent({
   useLayoutEffect(() => {
     openSessionInChatRef.current = openSession;
   }, [openSession]);
-  const pendingSessionRowActionsRef = useRef(new Set<string>());
   const sessionNavigationCommandsRef = useRef<SessionNavigationRowActions | null>(null);
   /* Built inline: the rail reads these through a ref published on commit, so
    * their identity carries no information and this object never has to be
    * held still by hand (#4109). */
   const sessionNavigationPorts: SessionNavigationPorts = {
     sessionsRef,
-    pendingSessionRowActionsRef,
+    acquireAutomaticQueryBlock: sessionCatalogController.acquireAutomaticQueryBlock,
     activateSession: setActiveId,
     clearSessionRendererState,
     refreshSessions,
     toastApi,
   };
   const {
-    branchBanner,
     revisionNavigation,
     activeParentSession,
     layout: railLayout,
@@ -1258,10 +1267,8 @@ function AppShellContent({
     setNavSelection,
     openSearchModal: openSearch,
     setSessionListCollapsed: sessionRailLayoutStore.setCollapsed,
-    workbar: {
-      setWorkbarCollapsed: commands.setWorkbarCollapsed,
-      openTool: commands.openTool,
-    },
+    // Stable bridge delegates: the fixture keeps them across Workbar updates.
+    workbar: commands,
     setThemePref,
     setUiLocaleOverride,
   });
@@ -1611,7 +1618,7 @@ function AppShellContent({
       !(await FollowUpSubmit.interruptBeforeRootSend({
         sessionId,
         slashCommand,
-        liveTurn: sessionId ? sessionUiController.liveTurnBySessionRef.current[sessionId] : undefined,
+        liveTurns: sessionId ? sessionUiController.liveTurnBySessionRef.current[sessionId] : undefined,
         runningTurnIds: sessionId
           ? sessionsRef.current.find((session) => session.id === sessionId)?.runningTurnIds
           : undefined,
@@ -1624,7 +1631,7 @@ function AppShellContent({
     const ok = await send(text, pending, {
       waitForHostAdmission: revisionSend,
       targetSessionId: expectedRevisionDraft?.draftSessionId,
-      onSessionResolved: workbar.commands.bindNewTaskSessionResolver(readSelectionRevision()),
+      onSessionResolved: commands.bindNewTaskSessionResolver(readSelectionRevision()),
       ...directoryOptions,
       ...(quotes ? { quotes } : {}),
       ...(workspaceFileReferences.length
@@ -1648,59 +1655,6 @@ function AppShellContent({
       commitRevisionDraft(null);
     }
     return ok;
-  }
-
-  async function updateQueuedEntry(
-    entryId: string,
-    expectedQueueRevision: number,
-    text: string,
-  ): Promise<void> {
-    await runQueueEntryAction((sessionId) =>
-      window.maka.sessions.updateQueueEntry(sessionId, entryId, expectedQueueRevision, text)
-    );
-  }
-
-  async function deleteQueuedEntry(entryId: string): Promise<void> {
-    const messageId = activeMessageQueue?.entries.find((entry) => entry.entryId === entryId)?.messageId;
-    const sessionId = await runQueueEntryAction((sessionId) =>
-      window.maka.sessions.retractQueueEntry(sessionId, entryId).then(() => undefined)
-    );
-    if (sessionId && messageId) removeTransientMessage(sessionId, messageId);
-  }
-
-  /* Surfaces the failure, then rethrows so the pending plate can settle its
-   * in-flight action state without guessing with a timer. */
-  async function runQueueEntryAction(
-    action: (sessionId: string) => Promise<void>,
-  ): Promise<string | undefined> {
-    const sessionId = activeIdRef.current;
-    if (!sessionId) return;
-    try {
-      await action(sessionId);
-      return sessionId;
-    } catch (error) {
-      if (activeIdRef.current === sessionId) {
-        const copy = getDesktopConversationCopy(uiLocale).actions;
-        showSessionError(
-          sessionId,
-          copy.operationFailedTitle,
-          localizedShellErrorMessage(error, copy.operationFailedFallback, uiLocale),
-        );
-      }
-      throw error;
-    }
-  }
-
-  async function promoteQueuedEntry(entryId: string): Promise<void> {
-    await runQueueEntryAction((sessionId) =>
-      window.maka.sessions.promoteQueueEntry(sessionId, entryId).then(() => undefined)
-    );
-  }
-
-  async function reorderQueuedEntries(entryIds: readonly string[]): Promise<void> {
-    await runQueueEntryAction((sessionId) =>
-      window.maka.sessions.reorderQueueEntries(sessionId, entryIds).then(() => undefined)
-    );
   }
 
   const [sessionDisplayBatch] = useState(createAppShellSessionDisplayBatch);
@@ -2057,12 +2011,12 @@ function AppShellContent({
         : 'im_hub';
 
   return (
-    /* Feature controllers live below the shell. Task Entry publishes a stable
-     * shell projection plus reader-local Host/Workspace Picker projections;
-     * Goal state and Module Hub ownership likewise wake only their narrow
-     * readers. Composer mentions still wrap the frame so one projection serves
-     * every composer, including side-chat panels, without rebuilding the frame
-     * on catalog moves. */
+    // Feature controllers live below the shell. Task Entry publishes a stable
+    // shell projection plus reader-local Host/Workspace Picker projections;
+    // Workbar, Goal state and Module Hub ownership likewise wake only their
+    // narrow readers. Composer mentions still wrap the frame so one
+    // projection serves every composer, including side-chat panels, without
+    // rebuilding the frame on catalog moves.
     <SessionSettingsProvider
       bridge={sessionSettingIntent.bridge}
       input={{
@@ -2096,7 +2050,13 @@ function AppShellContent({
       canOpenDialog={activeBoundarySurface.localInteractionAvailable}
       reportError={showSessionError}
     >
-    <Conversation.SessionLocalMessages sessionId={activeId} publish={addTransientMessage} retire={removeTransientMessage} reportError={toastApi.error} />
+    <Conversation.SessionLocalMessages
+      sessionId={activeId}
+      publish={addTransientMessage}
+      retire={removeTransientMessage}
+      reportError={toastApi.error}
+      restoreDraft={restoreLocalMessageDraft}
+    />
     <CatalogRowWatch
       catalog={sessionCatalogController}
       sessionIds={[revisionDraft?.sourceSessionId, revisionDraft?.draftSessionId]}
@@ -2119,6 +2079,26 @@ function AppShellContent({
       catalog={sessionCatalogController}
       onOpenSession={openSession}
     >
+    <WorkbarProvider
+      bridge={bridge}
+      input={{
+        workHub: { enabled: workHubEnabled, active: workHubActive },
+        available: sessionsSelected && (workHubActive || Boolean(activeHostSession)),
+        layoutSessionId: activeId,
+        activeSession: activeHostSession,
+        projectId: currentProjectId,
+        projectAliases: currentProject?.aliases ?? [],
+        authoritativeSessionIds,
+        shellObscured,
+        modelChoices: chatModelChoices,
+        toastApi,
+        composerRef,
+        openNewTaskSurface,
+        openSessionInChat,
+        resolveWorkBoardTarget,
+        prepareWorkBoardDraft,
+      }}
+    >
     <div
       className="appFrame agents-layout-root"
       data-agents-page
@@ -2136,7 +2116,6 @@ function AppShellContent({
       style={appShellFrameStyle({
         sessionListCollapsed,
         sessionListWidth,
-        workbarRightWidth: workbar.host.rightWidth,
       })}
     >
       <Conversation.TranscriptReadingPositionController
@@ -2174,7 +2153,7 @@ function AppShellContent({
         sidebarCollapsed={sessionListCollapsed}
         onToggleSidebar={() => sessionSideNavHandleRef.current?.getCollapseState()?.toggle()}
         onOpenSearchModal={openSearch}
-        workbar={{ model: workbar.host, togglePosition: workbarTogglePosition }}
+        workbar={{ togglePosition: workbarTogglePosition }}
       >
             {/* Only a session has an identity to state. The other views name
                 themselves in the nav column they are selected from, and the
@@ -2290,7 +2269,7 @@ function AppShellContent({
               inert={switchingSession || undefined}
               aria-busy={switchingSession || undefined}>
               <ModuleHub.ModuleHubHost />
-              <WorkHubMainNavigation workbarReady={workHubActive && Boolean(workbar.host.activeId)}
+              <WorkHubMainNavigation workbarReady={workHubActive && selectors.ready}
                 onOpenUsage={() => commands.toggleTool('inspector')} onToggleWorkbar={commands.toggleRight}
                 onOpenWorkHub={openWorkHub} onOpenSession={(sessionId) => { closeSettings(); openSession(sessionId); }} />
               <WorkHubDock workbarTogglePosition={workbarTogglePosition} workbarCollapsed={selectors.rightCollapsed} enabled={workHubEnabled} visible={workHubActive && sessionsSelected && !shellObscured} />
@@ -2325,18 +2304,19 @@ function AppShellContent({
                       />
                     ) : null}
                     {!sharedSessionActive && sessionsSelected ? <PlanExecutionPanel planMode={planMode} /> : null}
-                    {sharedSessionActive && activeId ? (
-                      <SessionCollaboration.SessionTurnRequestComposer
-                        sessionId={activeId}
-                      />
-                    ) : (
-                      <TaskEntry.TaskEntryWorkspacePickerConsumer manageProjects={openProjectSettings}
-                        activeSession={activeSession}
-                      >
-                        {(workspacePicker) => (
+                    <TaskEntry.TaskEntryWorkspacePickerConsumer manageProjects={openProjectSettings}
+                      activeSession={activeSession}
+                    >
+                      {(workspacePicker) => (
+                        <SessionCollaboration.GuestTurnRequests
+                          sessionId={sharedSessionActive ? activeId : undefined}
+                          composerRef={composerRef}
+                        >
+                          {(guest) => (
                           <ChatComposerRegion
                   workspacePicker={workspacePicker}
                   composerRef={composerRef}
+                  guest={guest}
                   active={sessionsSelected}
                   onboardingComposerHidden={
                     onboardingComposerHidden
@@ -2365,9 +2345,8 @@ function AppShellContent({
                   onStop={stop}
                   pendingMessages={transientMessages}
                   queuedMessages={activeMessageQueue?.entries}
-                  queuedMessageRevision={activeMessageQueue?.queueRevision}
                   onPromoteQueuedEntry={activeId ? promoteQueuedEntry : undefined}
-                  onUpdateQueuedEntry={activeId ? updateQueuedEntry : undefined}
+                  onEditQueuedEntry={activeId ? editQueuedEntry : undefined}
                   onDeleteQueuedEntry={activeId ? deleteQueuedEntry : undefined}
                   onReorderQueuedEntries={activeId ? reorderQueuedEntries : undefined}
                   revisionNotice={
@@ -2448,9 +2427,10 @@ function AppShellContent({
                       : undefined
                   }
                           />
-                        )}
-                      </TaskEntry.TaskEntryWorkspacePickerConsumer>
-                    )}
+                          )}
+                        </SessionCollaboration.GuestTurnRequests>
+                      )}
+                    </TaskEntry.TaskEntryWorkspacePickerConsumer>
                   </>
                 }
               >
@@ -2466,7 +2446,7 @@ function AppShellContent({
                 onLoadTranscriptTurn={(turn) => transcriptReadingCommands.current?.loadEarlier(turn.sequence)}
                 liveContentSeedRevision={liveContent.liveContentSeedRevision(activeEventSeed, activeId)}
                 messages={messages}
-                transientMessages={transientMessages}
+                transientMessages={transcriptTransientMessages}
                 messageLoading={activeMessageLoading}
                     onStreamingSettled={
                       activeId ? (messageId) => settleAssistantStreaming(activeId, messageId) : undefined
@@ -2513,8 +2493,6 @@ function AppShellContent({
                   ? (turnId) => transcriptReadingCommands.current?.captureAnchor(turnId)
                   : undefined}
                 scrollBehavior={readScrollMotionBehavior()}
-                branchBanner={branchBanner}
-                onBranchBannerClick={openSessionInChat}
                 revisionNavigation={revisionNavigation}
                 onRevisionNavigate={openSessionInChat}
                 onNew={createSession}
@@ -2587,7 +2565,7 @@ function AppShellContent({
               </ChatSurfaceLayout>
             </div>
             {/* Collapse hides the Workbar surface without unmounting its tools. */}
-            <WorkbarHost model={workbar.host} togglePosition={workbarTogglePosition} />
+            <WorkbarHost togglePosition={workbarTogglePosition} />
           </div>
           </MakaUriContext.Provider>
         </AppShellDetailPanel>
@@ -2637,6 +2615,7 @@ function AppShellContent({
         onSelectedRuntimeHostProfileIdChange={setSettingsProfileId}
       />
     </div>
+    </WorkbarProvider>
     </SessionCollaboration.SessionTurnRequestInboxProvider>
     </ModuleHub.ModuleHubSkillCatalogRevisionBoundary>
     </ModuleHub.ModuleHubProvider>

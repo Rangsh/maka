@@ -30,7 +30,7 @@ describe('follow-up submit routing', () => {
   it('uses the synchronous turn arm before React publishes streaming state', () => {
     assert.equal(
       hasActiveTurnAtSubmit({
-        liveTurn: { turnId: 'turn-1' },
+        liveTurns: [{ turnId: 'turn-1' }],
         runningTurnIds: [],
       }),
       true,
@@ -40,10 +40,46 @@ describe('follow-up submit routing', () => {
   it('ignores a terminal projection whose only running id is the same turn', () => {
     assert.equal(
       hasActiveTurnAtSubmit({
-        liveTurn: { turnId: 'turn-1', terminal: true },
+        liveTurns: [{ turnId: 'turn-1', terminal: true }],
         runningTurnIds: ['turn-1'],
       }),
       false,
+    );
+  });
+
+  it('treats a non-terminal buffer entry as active even when a terminal turn is retained', () => {
+    assert.equal(
+      hasActiveTurnAtSubmit({
+        liveTurns: [
+          { turnId: 'turn-1', terminal: true },
+          { turnId: 'turn-2' },
+        ],
+        runningTurnIds: ['turn-1'],
+      }),
+      true,
+    );
+  });
+
+  it('ignores multiple retained terminal turns whose running ids are already settled', () => {
+    assert.equal(
+      hasActiveTurnAtSubmit({
+        liveTurns: [
+          { turnId: 'turn-1', terminal: true },
+          { turnId: 'turn-2', terminal: true },
+        ],
+        runningTurnIds: ['turn-1', 'turn-2'],
+      }),
+      false,
+    );
+  });
+
+  it('treats a running turn outside the retained terminal buffer as active', () => {
+    assert.equal(
+      hasActiveTurnAtSubmit({
+        liveTurns: [{ turnId: 'turn-1', terminal: true }],
+        runningTurnIds: ['turn-1', 'turn-2'],
+      }),
+      true,
     );
   });
 
@@ -71,7 +107,7 @@ describe('follow-up submit routing', () => {
       await interruptBeforeRootSend({
         sessionId: 'session-a',
         slashCommand: undefined,
-        liveTurn: { turnId: 'turn-1' },
+        liveTurns: [{ turnId: 'turn-1' }],
         runningTurnIds: [],
         activeSessionId: () => activeIdRef.current,
         stop: async (sessionId) => {
