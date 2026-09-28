@@ -6090,6 +6090,8 @@ describe('AiSdkBackend model history', () => {
     // OpenAI Responses emits `{ kind: 'thinking', text: '' }` at reasoning-end
     // whenever provider metadata is present. That carrier must not count as
     // visible thinking, or identical textless tool steps never reach the cap.
+    // The connection must be OpenAI Responses so the adapter actually emits the
+    // empty carrier — an Anthropic connection never takes that path (#4083 review).
     const reasoningMetadata = {
       openai: {
         itemId: 'rs_empty',
@@ -6125,13 +6127,19 @@ describe('AiSdkBackend model history', () => {
       },
     });
     const durable = durableTurnHarness('turn-empty-responses-loop', 'keep going');
+    const openAiConnection = {
+      ...connection(),
+      slug: 'openai-main',
+      providerType: 'openai' as const,
+      defaultModel: 'gpt-5.4',
+    };
     const backend = createTestAiSdkBackend({
       sessionId: 'session-1',
       header: header(),
       appendMessage: async () => {},
-      connection: connection(),
+      connection: openAiConnection,
       apiKey: 'sk-test',
-      modelId: 'mock-model-id',
+      modelId: 'gpt-5.4',
       modelFactory: () => model,
       tools: [testTool('Read', z.object({ path: z.string() }))],
       loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,

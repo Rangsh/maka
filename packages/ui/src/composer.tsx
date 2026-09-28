@@ -1546,7 +1546,9 @@ export const Composer = forwardRef<
     }
     if (event.key !== 'Enter') return;
     // Shift+Enter and Alt+Enter always insert a line break. The platform
-    // primary modifier steers this one draft mid-turn; plain Enter queues it.
+    // primary modifier steers this one draft mid-turn; plain Enter submits
+    // without a follow-up mode. The main Desktop chat interrupts a live turn
+    // before root-sending (#4083); Side chat / WorkHub keep their managed queues.
     if (event.altKey || event.shiftKey) {
       event.preventDefault();
       document.execCommand('insertLineBreak');
