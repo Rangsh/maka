@@ -783,7 +783,7 @@
           "react": 1
         },
         "importSpecifiers": 90,
-        "nonTriviaTokens": 12110
+        "nonTriviaTokens": 12108
       },
       "src/renderer/use-app-shell-session-list.ts": {
         "importDeclarations": 4,
@@ -3108,6 +3108,7 @@
         "dependencyPaths": {
           "../../shared/settings-ownership.js": 1,
           "../application/contracts/session-catalog/catalog-sessions.js": 1,
+          "../application/contracts/shell-layout-contract.js": 1,
           "../browser-storage": 1,
           "../features/connection-settings": 1,
           "../features/external-agent-settings/index.js": 1,
