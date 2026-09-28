@@ -6,7 +6,7 @@ Generated against `@astryxdesign/core@0.6.2` (195 component exports).
 
 Wiki bar: Design Conventions · API Use-the-System · Theming · Container Padding.
 
-**Totals:** 305 files — blocker 0, reimplementation 0, polish 4, aligned 301.
+**Totals:** 308 files — blocker 0, reimplementation 0, polish 4, aligned 304.
 
 ## Exclusions (explicit)
 
@@ -211,6 +211,7 @@ Wiki bar: Design Conventions · API Use-the-System · Theming · Container Paddi
 | `apps/desktop/src/renderer/styles/help.css` | styles | n/a (css) | aligned — no off-rhythm control heights flagged | aligned |
 | `apps/desktop/src/renderer/styles/hero.css` | styles | n/a (css) | aligned — no off-rhythm control heights flagged | aligned |
 | `apps/desktop/src/renderer/styles/interaction-prompts.css` | styles | n/a (css) | aligned — no off-rhythm control heights flagged | aligned |
+| `apps/desktop/src/renderer/styles/message-queue.css` | styles | n/a (css) | aligned — no off-rhythm control heights flagged | aligned |
 | `apps/desktop/src/renderer/styles/model-switcher.css` | styles | n/a (css) | aligned — no off-rhythm control heights flagged | aligned |
 | `apps/desktop/src/renderer/styles/module-pages.css` | styles | n/a (css) | aligned — no off-rhythm control heights flagged | aligned |
 | `apps/desktop/src/renderer/styles/module-pages/capability-audit.css` | styles | n/a (css) | aligned — no off-rhythm control heights flagged | aligned |
@@ -273,7 +274,8 @@ Wiki bar: Design Conventions · API Use-the-System · Theming · Container Paddi
 | `packages/ui/src/client-plugin-runtime.tsx` | ui-composition | none | aligned — no raw controls; no Astryx JSX usage | aligned |
 | `packages/ui/src/client-plugin-slots.tsx` | ui-composition | none | aligned — no raw controls; no Astryx JSX usage | aligned |
 | `packages/ui/src/components.tsx` | ui-composition | none | aligned — no raw controls; no Astryx JSX usage | aligned |
-| `packages/ui/src/composer-message-queue.tsx` | shell-chrome-or-panel | Button, IconButton, List, ListItem, Tooltip | raw `<textarea` (API Use-the-System) | polish |
+| `packages/ui/src/composer-message-queue-view.tsx` | shell-chrome-or-panel | Button, IconButton, List, ListItem, Tooltip | raw `<textarea` (API Use-the-System) | polish |
+| `packages/ui/src/composer-message-queue.tsx` | shell-chrome-or-panel | none | aligned — no raw controls; no Astryx JSX usage | aligned |
 | `packages/ui/src/composer-model-label.tsx` | shell-chrome-or-panel | none | aligned — no raw controls; no Astryx JSX usage | aligned |
 | `packages/ui/src/composer.tsx` | shell-chrome-or-panel | Button, ChatComposer, ChatComposerDrawer, ChatComposerInput, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuDivider, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, HoverCard, IconButton, Lightbox, Popover, Token, Tooltip | aligned — uses Astryx (Button, ChatComposer, ChatComposerDrawer, ChatComposerInput, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuDivider, DropdownMenuItem) | aligned |
 | `packages/ui/src/daily-review-panel.tsx` | module-hub | Banner, Button, Divider, EmptyState, HStack, Heading, List, ListItem, SegmentedControl, SegmentedControlItem, Skeleton, StackItem, Text, Toolbar, VStack | aligned — uses Astryx (Banner, Button, Divider, EmptyState, HStack, Heading, List, ListItem) | aligned |
@@ -299,11 +301,12 @@ Wiki bar: Design Conventions · API Use-the-System · Theming · Container Paddi
 | `packages/ui/src/permission-mode-menu.tsx` | ui-composition | DropdownMenu, DropdownMenuRadioGroup, DropdownMenuRadioItem, Selector, SelectorOption | aligned — uses Astryx (DropdownMenu, DropdownMenuRadioGroup, DropdownMenuRadioItem, Selector, SelectorOption) | aligned |
 | `packages/ui/src/platform-shortcut-text.tsx` | ui-composition | none | aligned — no raw controls; no Astryx JSX usage | aligned |
 | `packages/ui/src/primitives/chat.tsx` | primitive | none | aligned — no raw controls; no Astryx JSX usage | aligned |
-| `packages/ui/src/primitives/module-page.tsx` | primitive | Dialog, DialogHeader, HStack, Heading, Layout, LayoutContent, LayoutFooter, LayoutHeader, StackItem, Text, VStack | aligned — uses Astryx (Dialog, DialogHeader, HStack, Heading, Layout, LayoutContent, LayoutFooter, LayoutHeader) | aligned |
+| `packages/ui/src/primitives/module-page.tsx` | primitive | Dialog, DialogHeader, HStack, Heading, Layout, LayoutContent, LayoutFooter, LayoutHeader, ListItem, StackItem, Text, VStack | aligned — uses Astryx (Dialog, DialogHeader, HStack, Heading, Layout, LayoutContent, LayoutFooter, LayoutHeader) | aligned |
 | `packages/ui/src/primitives/stat-tile.tsx` | primitive | none | aligned — no raw controls; no Astryx JSX usage | aligned |
 | `packages/ui/src/progress-card.tsx` | ui-composition | IconButton | aligned — uses Astryx (IconButton) | aligned |
 | `packages/ui/src/prompt-anchor-rail.tsx` | ui-composition | Button, HoverCard | aligned — uses Astryx (Button, HoverCard) | aligned |
 | `packages/ui/src/prompt-suggestion.tsx` | ui-composition | none | aligned — no raw controls; no Astryx JSX usage | aligned |
+| `packages/ui/src/provider-retry-notice.tsx` | ui-composition | Banner | aligned — uses Astryx (Banner) | aligned |
 | `packages/ui/src/quote-comment-panel.tsx` | shell-chrome-or-panel | Button, ChatComposerInput, HStack, VStack | aligned — uses Astryx (Button, ChatComposerInput, HStack, VStack) | aligned |
 | `packages/ui/src/quote-ref-chip.tsx` | ui-composition | Button, HoverCard, MetadataList, MetadataListItem, Text, VStack | aligned — uses Astryx (Button, HoverCard, MetadataList, MetadataListItem, Text, VStack) | aligned |
 | `packages/ui/src/relative-time.tsx` | ui-composition | none | aligned — no raw controls; no Astryx JSX usage | aligned |
@@ -313,14 +316,14 @@ Wiki bar: Design Conventions · API Use-the-System · Theming · Container Paddi
 | `packages/ui/src/scheduled-task-form-dialog.tsx` | module-hub | Button, DateTimeInput, Dialog, DialogHeader, DropdownMenu, DropdownMenuItem, FormLayout, HStack, Layout, LayoutContent, LayoutFooter, Selector, Text, TextArea, TextInput | aligned — uses Astryx (Button, DateTimeInput, Dialog, DialogHeader, DropdownMenu, DropdownMenuItem, FormLayout, HStack) | aligned |
 | `packages/ui/src/scheduled-task-panel.tsx` | module-hub | Button, Divider, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuItem, EmptyState, List, ListItem, SegmentedControl, SegmentedControlItem, Selector, StatusDot, Text, TextInput, Toolbar | aligned — uses Astryx (Button, Divider, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuItem, EmptyState, List, ListItem) | aligned |
 | `packages/ui/src/search-modal.tsx` | dialog-overlay | CommandPalette, CommandPaletteFooter, CommandPaletteInput | aligned — uses Astryx (CommandPalette, CommandPaletteFooter, CommandPaletteInput) | aligned |
-| `packages/ui/src/session-context-layer.tsx` | shell-chrome-or-panel | BreadcrumbItem, Breadcrumbs, ButtonGroup, Icon, IconButton, LayoutHeader, MoreMenu, OverflowList, StatusDot, Text, Token, Tooltip | aligned — uses Astryx (BreadcrumbItem, Breadcrumbs, ButtonGroup, Icon, IconButton, LayoutHeader, MoreMenu, OverflowList) | aligned |
+| `packages/ui/src/session-context-layer.tsx` | shell-chrome-or-panel | ButtonGroup, Icon, IconButton, LayoutHeader, MoreMenu, OverflowList, StatusDot, Text, Token, Tooltip | aligned — uses Astryx (ButtonGroup, Icon, IconButton, LayoutHeader, MoreMenu, OverflowList, StatusDot, Text) | aligned |
 | `packages/ui/src/session-history-list.tsx` | shell-chrome-or-panel | Badge, Button, MoreMenu, SideNavItem, SideNavSection, StatusDot, VStack | aligned — uses Astryx (Badge, Button, MoreMenu, SideNavItem, SideNavSection, StatusDot, VStack) | aligned |
 | `packages/ui/src/session-list-panel.tsx` | shell-chrome-or-panel | SegmentedControl, SegmentedControlItem, SideNav | aligned — uses Astryx (SegmentedControl, SegmentedControlItem, SideNav) | aligned |
 | `packages/ui/src/session-rail-context.tsx` | shell-chrome-or-panel | none | aligned — no raw controls; no Astryx JSX usage | aligned |
 | `packages/ui/src/session-rename-dialog.tsx` | dialog-overlay | Button, Dialog, DialogHeader, HStack, Layout, LayoutContent, LayoutFooter, TextInput | aligned — uses Astryx (Button, Dialog, DialogHeader, HStack, Layout, LayoutContent, LayoutFooter, TextInput) | aligned |
 | `packages/ui/src/session-sidebar-nav.tsx` | shell-chrome-or-panel | Icon, IconButton, SideNavItem, SideNavSection, Tooltip | aligned — uses Astryx (Icon, IconButton, SideNavItem, SideNavSection, Tooltip) | aligned |
-| `packages/ui/src/skill-detail.tsx` | ui-composition | Button, Divider, HStack, MetadataList, MetadataListItem, StackItem, Switch, Text, VStack | aligned — uses Astryx (Button, Divider, HStack, MetadataList, MetadataListItem, StackItem, Switch, Text) | aligned |
-| `packages/ui/src/skills-panel.tsx` | module-hub | Button, DropdownMenu, DropdownMenuItem, DropdownMenuSubMenu, EmptyState, IconButton, List, ListItem, SegmentedControl, SegmentedControlItem, Selector, StatusDot, Text, TextInput, Toolbar | aligned — uses Astryx (Button, DropdownMenu, DropdownMenuItem, DropdownMenuSubMenu, EmptyState, IconButton, List, ListItem) | aligned |
+| `packages/ui/src/skill-detail.tsx` | ui-composition | Banner, Button, HStack, MetadataList, MetadataListItem, StackItem, Switch, Text, VStack | aligned — uses Astryx (Banner, Button, HStack, MetadataList, MetadataListItem, StackItem, Switch, Text) | aligned |
+| `packages/ui/src/skills-panel.tsx` | module-hub | Button, DropdownMenu, DropdownMenuItem, DropdownMenuSubMenu, EmptyState, IconButton, List, Text, TextInput | aligned — uses Astryx (Button, DropdownMenu, DropdownMenuItem, DropdownMenuSubMenu, EmptyState, IconButton, List, Text) | aligned |
 | `packages/ui/src/status-label.tsx` | ui-composition | HStack, StatusDot, Text | aligned — uses Astryx (HStack, StatusDot, Text) | aligned |
 | `packages/ui/src/styles.css` | ui-composition | n/a (css) | aligned — no off-rhythm control heights flagged | aligned |
 | `packages/ui/src/titlebar-session-identity.tsx` | shell-chrome-or-panel | Button, DropdownMenu, DropdownMenuItem, IconButton | aligned — uses Astryx (Button, DropdownMenu, DropdownMenuItem, IconButton) | aligned |

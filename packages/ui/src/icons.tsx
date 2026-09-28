@@ -74,7 +74,6 @@ export {
   AlertCircle,
   AlertOctagon,
   AlertTriangle,
-  ArchiveRestore,
   ArrowDown,
   ArrowLeft,
   ArrowRight,
