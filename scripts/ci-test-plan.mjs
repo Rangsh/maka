@@ -571,8 +571,7 @@ export function planTests(changedFiles, options = {}) {
     // boots, and packages/ui unit-test-only PRs must not either.
     e2e: files.some((path) => isE2eProductPath(path)),
     full: false,
-    releaseContract:
-      cliPackage || files.some((path) => isReleaseContractPath(path, gateTestFiles)),
+    releaseContract: cliPackage || files.some((path) => isReleaseContractPath(path, gateTestFiles)),
     // packages/cli/src/__tests__/runtime-host-session-driver.test.ts executes real sandboxed
     // shell tools, so the bubblewrap + user-namespace setup is required whenever
     // the cli workspace runs in the dependency closure, not only for direct
