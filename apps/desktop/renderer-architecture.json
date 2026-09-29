@@ -624,7 +624,7 @@
           "./locales/shell-copy.js": 1
         },
         "importSpecifiers": 0,
-        "nonTriviaTokens": 280
+        "nonTriviaTokens": 300
       },
       "src/renderer/app-shell-turn-actions.ts": {
         "importDeclarations": 2,
@@ -783,7 +783,7 @@
           "react": 1
         },
         "importSpecifiers": 90,
-        "nonTriviaTokens": 12108
+        "nonTriviaTokens": 12112
       },
       "src/renderer/use-app-shell-session-list.ts": {
         "importDeclarations": 4,
@@ -1205,7 +1205,9 @@
         "lifecycleMethods": {},
         "unresolvedDependencies": 0,
         "actionFactories": [],
-        "dependencyPaths": {}
+        "dependencyPaths": {
+          "./application/contracts/conversation-copy.js": 1
+        }
       },
       "src/renderer/local-memory-digest.ts": {
         "bridgePaths": {},

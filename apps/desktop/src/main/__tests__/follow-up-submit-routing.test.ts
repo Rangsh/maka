@@ -23,6 +23,7 @@ import {
   hasActiveTurnAtSubmit,
   interruptBeforeRootSend,
   mergeWorkspaceReferences,
+  resolveExpectedTurnIdForInterrupt,
   shouldContinueRootSendAfterInterrupt,
 } from '../../renderer/follow-up-submit-routing.js';
 
@@ -101,7 +102,8 @@ describe('follow-up submit routing', () => {
   });
 
   it('pins the submitting Session across an awaited interrupt before root send', async () => {
-    const stopped: string[] = [];
+    const stopped: Array<{ sessionId: string; expectedTurnId?: string }> = [];
+    const errors: Array<{ title: string; description?: string }> = [];
     const activeIdRef = { current: 'session-a' as string | undefined };
     assert.equal(
       await interruptBeforeRootSend({
@@ -110,15 +112,55 @@ describe('follow-up submit routing', () => {
         liveTurns: [{ turnId: 'turn-1' }],
         runningTurnIds: [],
         activeSessionId: () => activeIdRef.current,
-        stop: async (sessionId) => {
-          stopped.push(sessionId ?? '');
+        stop: async (sessionId, expectedTurnId) => {
+          stopped.push({ sessionId: sessionId ?? '', expectedTurnId });
           activeIdRef.current = 'session-b';
           return true;
+        },
+        uiLocale: 'en',
+        toastApi: {
+          error(title, description) {
+            errors.push({ title, description });
+          },
         },
       }),
       false,
     );
-    assert.deepEqual(stopped, ['session-a']);
+    assert.deepEqual(stopped, [{ sessionId: 'session-a', expectedTurnId: 'turn-1' }]);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0]?.title ?? '', /not sent/i);
+  });
+
+  it('pins stop to a running Host turn when the live buffer only retains terminals', async () => {
+    const stopped: Array<{ sessionId: string; expectedTurnId?: string }> = [];
+    assert.equal(
+      await interruptBeforeRootSend({
+        sessionId: 'session-a',
+        slashCommand: undefined,
+        liveTurns: [{ turnId: 'turn-1', terminal: true }],
+        runningTurnIds: ['turn-1', 'turn-2'],
+        activeSessionId: () => 'session-a',
+        stop: async (sessionId, expectedTurnId) => {
+          stopped.push({ sessionId: sessionId ?? '', expectedTurnId });
+          return true;
+        },
+      }),
+      true,
+    );
+    assert.deepEqual(stopped, [{ sessionId: 'session-a', expectedTurnId: 'turn-2' }]);
+  });
+
+  it('resolves the non-terminal live turn before Host running ids', () => {
+    assert.equal(
+      resolveExpectedTurnIdForInterrupt({
+        liveTurns: [
+          { turnId: 'turn-1', terminal: true },
+          { turnId: 'turn-2' },
+        ],
+        runningTurnIds: ['turn-1', 'turn-2', 'turn-3'],
+      }),
+      'turn-2',
+    );
   });
 
   it('restores workspace references after queued text returns to the draft', () => {

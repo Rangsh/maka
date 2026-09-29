@@ -18,6 +18,8 @@
  */
 
 import type { InlineReference } from '@maka/core/events';
+import type { UiLocale } from '@maka/core/ui-locale';
+import { getDesktopConversationCopy } from './application/contracts/conversation-copy.js';
 
 export interface WorkspaceFileReferencePosition {
   value: string;
@@ -64,6 +66,24 @@ export function shouldContinueRootSendAfterInterrupt(input: {
   return input.activeSessionId === input.submittingSessionId;
 }
 
+/**
+ * Pin stop to the live turn that armed interrupt, so a queued turn that starts
+ * during settlement is not cancelled in its place (#4083 review).
+ */
+export function resolveExpectedTurnIdForInterrupt(input: {
+  liveTurns?: readonly LiveTurnAtSubmit[];
+  runningTurnIds?: readonly string[];
+}): string | undefined {
+  const activeLive = input.liveTurns?.find((turn) => turn.terminal !== true);
+  if (activeLive) return activeLive.turnId;
+  const retainedTerminalIds = new Set(
+    (input.liveTurns ?? [])
+      .filter((turn) => turn.terminal === true)
+      .map((turn) => turn.turnId),
+  );
+  return input.runningTurnIds?.find((turnId) => !retainedTerminalIds.has(turnId));
+}
+
 /** Interrupt a live turn before admitting a plain-Enter root send (#4083). */
 export async function interruptBeforeRootSend(input: {
   sessionId: string | undefined;
@@ -71,17 +91,35 @@ export async function interruptBeforeRootSend(input: {
   liveTurns?: readonly LiveTurnAtSubmit[];
   runningTurnIds?: readonly string[];
   activeSessionId: () => string | undefined;
-  stop: (sessionId?: string) => Promise<boolean | void>;
+  stop: (sessionId?: string, expectedTurnId?: string) => Promise<boolean | void>;
+  toastApi?: {
+    error(title: string, description?: string): void;
+  };
+  uiLocale?: UiLocale;
 }): Promise<boolean> {
   if (!input.sessionId || input.slashCommand) return true;
   if (!hasActiveTurnAtSubmit({ liveTurns: input.liveTurns, runningTurnIds: input.runningTurnIds })) {
     return true;
   }
-  if (!(await input.stop(input.sessionId))) return false;
-  return shouldContinueRootSendAfterInterrupt({
-    submittingSessionId: input.sessionId,
-    activeSessionId: input.activeSessionId(),
+  const expectedTurnId = resolveExpectedTurnIdForInterrupt({
+    liveTurns: input.liveTurns,
+    runningTurnIds: input.runningTurnIds,
   });
+  if (!(await input.stop(input.sessionId, expectedTurnId))) return false;
+  if (
+    !shouldContinueRootSendAfterInterrupt({
+      submittingSessionId: input.sessionId,
+      activeSessionId: input.activeSessionId(),
+    })
+  ) {
+    // User navigated away during the awaited stop — keep the draft and say so.
+    if (input.toastApi && input.uiLocale) {
+      const copy = getDesktopConversationCopy(input.uiLocale).actions;
+      input.toastApi.error(copy.interruptSendAbandonedTitle, copy.interruptSendAbandonedDescription);
+    }
+    return false;
+  }
+  return true;
 }
 
 export function mergeWorkspaceReferences(

@@ -18,7 +18,10 @@
  */
 
 import type { UiLocale } from '@maka/core/ui-locale';
-import { localizedShellErrorMessage } from './locales/shell-copy.js';
+import {
+  localizedShellErrorMessage,
+  type ShellErrorToastApi,
+} from './locales/shell-copy.js';
 import { getDesktopConversationCopy } from './application/contracts/conversation-copy.js';
 import type { SessionPendingClaim } from './app-shell-session-ui-state.js';
 
@@ -29,34 +32,24 @@ export function createAppShellStopAction(deps: {
   activeIdRef: RefBox<string | undefined>;
   stopPending: SessionPendingClaim;
   removeTransientMessage: (sessionId: string, messageId: string) => void;
-  toastApi: { error(...args: any): void };
-}): any {
-  const {
-    uiLocale,
-    activeIdRef,
-    stopPending,
-    removeTransientMessage,
-    toastApi,
-  } = deps;
-
-  async function stop(o?: string) {
-    const sessionId = o ?? activeIdRef.current;
+  toastApi: ShellErrorToastApi;
+}): (sessionId?: string, expectedTurnId?: string) => Promise<boolean | undefined> {
+  const { uiLocale, activeIdRef, stopPending, removeTransientMessage, toastApi } = deps;
+  return async (override?: string, expectedTurnId?: string) => {
+    const sessionId = override ?? activeIdRef.current;
     if (!sessionId || !stopPending.claim(sessionId)) return;
     try {
-      const result = await window.maka.sessions.stop(sessionId, { source: 'stop_button' });
+      const result = await window.maka.sessions.stop(sessionId, {
+        source: 'stop_button',
+        ...(expectedTurnId ? { expectedTurnId } : {}),
+      });
       if (result?.kind === 'interrupted') {
-        for (const messageId of result.retractedMessageIds) {
-          removeTransientMessage(sessionId, messageId);
-        }
+        for (const id of result.retractedMessageIds) removeTransientMessage(sessionId, id);
       }
       return true;
     } catch (error) {
-      // The Composer wires this through both the Stop button onClick
-      // and the Escape key. Both invoke `onStop` without awaiting, so
-      // a rejected IPC would otherwise surface as an
-      // UnhandledPromiseRejection and the user would see nothing.
-      // Surface it as a toast so the user knows the model wasn't
-      // actually interrupted and can retry.
+      // Composer Stop / Escape call onStop without awaiting; toast so a failed
+      // interrupt is visible instead of an UnhandledPromiseRejection.
       if (activeIdRef.current === sessionId) {
         const copy = getDesktopConversationCopy(uiLocale).actions;
         toastApi.error(
@@ -69,7 +62,5 @@ export function createAppShellStopAction(deps: {
     } finally {
       stopPending.release(sessionId);
     }
-  }
-
-  return stop;
+  };
 }

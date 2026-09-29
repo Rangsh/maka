@@ -34,6 +34,16 @@ import {
 import { AttachmentIngestBlockedError, type AttachmentIngestBlockedCode } from '@maka/core/attachments';
 import type { DesktopSessionUpdateFailureCode } from '../../shared/desktop-session-projection.js';
 
+/** Typed toast.error contract shared by AppShell stop / interrupt paths. */
+export type ShellErrorToastApi = {
+  error(
+    title: string,
+    description?: string,
+    diagnosticDetails?: string,
+    diagnosticTarget?: { sessionId: string },
+  ): void;
+};
+
 export const STATIC_COMMAND_IDS = [
   'action:new-chat',
   'action:side-chat',

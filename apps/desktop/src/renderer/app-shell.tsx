@@ -1605,6 +1605,8 @@ function AppShellContent({
           : undefined,
         activeSessionId: () => activeIdRef.current,
         stop,
+        toastApi,
+        uiLocale,
       }))
     ) {
       return false;
