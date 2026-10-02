@@ -29,6 +29,7 @@ import type {
 } from '@maka/ui';
 import type { PendingAttachment } from '@maka/ui/composer-attachments';
 import type { ComposerStagingSubmission } from '../model/composer-staging-contract.js';
+import { interruptBeforeRootSend } from './interrupt-before-root-send.js';
 
 type RefBox<T> = { current: T };
 type WorkspaceFileReference = NonNullable<ComposerSendMetadata['workspaceFileReferences']>[number];
@@ -127,10 +128,14 @@ export interface RevisionSendPorts<TDraft extends RevisionDraftIdentity> {
    * Plain-Enter interrupt before a new root send (#4083). Optional so unit
    * doubles that only exercise revision/slash routing can omit it.
    */
-  interruptBeforeRootSend?: (input: {
-    sessionId: string | undefined;
-    slashCommand: ComposerSlashCommand | null;
-  }) => Promise<boolean>;
+  interrupt?: {
+    stop: (sessionId?: string, expectedTurnId?: string) => Promise<boolean | void>;
+    liveTurns: (sessionId: string) => readonly { turnId: string; terminal?: boolean }[] | undefined;
+    runningTurnIds: (sessionId: string) => readonly string[] | undefined;
+    activeSessionId: () => string | undefined;
+    toastApi?: { error(title: string, description?: string): void };
+    uiLocale?: import('@maka/core/ui-locale').UiLocale;
+  };
 }
 
 export interface RevisionAwareOnSendPorts<TDraft extends RevisionDraftIdentity> extends RevisionSendPorts<TDraft> {
@@ -373,11 +378,18 @@ export async function revisionAwareSend<TDraft extends RevisionDraftIdentity>(
     : undefined;
   const quotes = staging.quotesForSend();
   // #4083: plain Enter interrupts the live turn before a new root send.
-  if (
-    ports.interruptBeforeRootSend &&
-    !(await ports.interruptBeforeRootSend({ sessionId, slashCommand }))
-  ) {
-    return false;
+  if (ports.interrupt) {
+    const allowed = await interruptBeforeRootSend({
+      sessionId,
+      slashCommand,
+      liveTurns: sessionId ? ports.interrupt.liveTurns(sessionId) : undefined,
+      runningTurnIds: sessionId ? ports.interrupt.runningTurnIds(sessionId) : undefined,
+      activeSessionId: ports.interrupt.activeSessionId,
+      stop: ports.interrupt.stop,
+      toastApi: ports.interrupt.toastApi,
+      uiLocale: ports.interrupt.uiLocale,
+    });
+    if (!allowed) return false;
   }
   const ok = await ports.send(text, pending, {
     waitForHostAdmission: revisionSend,

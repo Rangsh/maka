@@ -33,8 +33,7 @@ export function createAppShellStopAction(deps: {
   toastApi: ShellErrorToastApi;
 }): (sessionId?: string, expectedTurnId?: string) => Promise<boolean | undefined> {
   const { uiLocale, activeIdRef, stopPending, removeTransientMessage, toastApi } = deps;
-  return async (override?: string, expectedTurnId?: string) => {
-    const sessionId = override ?? activeIdRef.current;
+  return async (sessionId = activeIdRef.current, expectedTurnId?: string) => {
     if (!sessionId || !stopPending.claim(sessionId)) return;
     try {
       const result = await window.maka.sessions.stop(sessionId, {
@@ -43,14 +42,9 @@ export function createAppShellStopAction(deps: {
       });
       if (result?.kind === 'interrupted') {
         for (const id of result.retractedMessageIds) removeTransientMessage(sessionId, id);
-        return true;
       }
-      // Enter pins expectedTurnId. Host returns undefined when that turn has
-      // already settled or been replaced — treat it as a failed interrupt so
-      // interruptBeforeRootSend does not admit a root send over a newer live
-      // turn (#4083 review).
-      if (expectedTurnId) return false;
-      return true;
+      // Enter path: Host no-op must not look like a successful interrupt (#4083).
+      return result?.kind === 'interrupted';
     } catch (error) {
       // Composer Stop / Escape call onStop without awaiting; toast so a failed
       // interrupt is visible instead of an UnhandledPromiseRejection.

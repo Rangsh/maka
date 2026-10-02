@@ -61,6 +61,13 @@ export {
   createRevisionAwareOnSend,
   type RevisionSendPorts,
 } from './controller/composer-submit.js';
+export {
+  hasActiveTurnAtSubmit,
+  interruptBeforeRootSend,
+  resolveExpectedTurnIdForInterrupt,
+  shouldContinueRootSendAfterInterrupt,
+  type LiveTurnAtSubmit,
+} from './controller/interrupt-before-root-send.js';
 export * from './model/observation-visibility.js';
 
 export { useExecutorSelection } from './controller/use-executor-selection.js';

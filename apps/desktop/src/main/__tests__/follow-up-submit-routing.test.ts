@@ -23,10 +23,10 @@ import { createAppShellStopAction } from '../../renderer/app-shell-stop-action.j
 import {
   hasActiveTurnAtSubmit,
   interruptBeforeRootSend,
-  mergeWorkspaceReferences,
   resolveExpectedTurnIdForInterrupt,
   shouldContinueRootSendAfterInterrupt,
-} from '../../renderer/follow-up-submit-routing.js';
+} from '../../renderer/features/conversation/index.js';
+import { mergeWorkspaceReferences } from '../../renderer/follow-up-submit-routing.js';
 
 describe('follow-up submit routing', () => {
   it('uses the synchronous turn arm before React publishes streaming state', () => {

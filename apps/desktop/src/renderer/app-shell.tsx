@@ -93,11 +93,7 @@ import * as SessionCollaboration from './features/session-collaboration';
 import type { SessionCollaborationDialogProjection } from './features/session-collaboration';
 import { NEW_TASK_PENDING_KEY } from './pending-items';
 import { desktopSlashCommandAvailability, parseDesktopSlashCommand } from './desktop-slash-command';
-import {
-  interruptBeforeRootSend,
-  mergeWorkspaceReferences,
-  rebaseWorkspaceFileReferences,
-} from './follow-up-submit-routing';
+import { mergeWorkspaceReferences, rebaseWorkspaceFileReferences } from './follow-up-submit-routing';
 import { getOnboardingActivationCandidate, useOnboardingSnapshot } from './use-onboarding-snapshot';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
@@ -1280,21 +1276,15 @@ function AppShellContent({
       getActiveOrchestrationMode: () => activeOrchestrationMode,
       setOrchestrationModeActive,
       setNewTaskSendPending,
-      interruptBeforeRootSend: ({ sessionId, slashCommand }) =>
-        interruptBeforeRootSend({
-          sessionId,
-          slashCommand,
-          liveTurns: sessionId
-            ? sessionUiReads.liveTurns(sessionId).getSnapshot()
-            : undefined,
-          runningTurnIds: sessionId
-            ? sessionsRef.current.find((session) => session.id === sessionId)?.runningTurnIds
-            : undefined,
-          activeSessionId: () => activeIdRef.current,
-          stop,
-          toastApi,
-          uiLocale,
-        }),
+      interrupt: {
+        stop,
+        liveTurns: (id) => sessionUiReads.liveTurns(id).getSnapshot(),
+        runningTurnIds: (id) =>
+          sessionsRef.current.find((session) => session.id === id)?.runningTurnIds,
+        activeSessionId: () => activeIdRef.current,
+        toastApi,
+        uiLocale,
+      },
     },
   );
 
