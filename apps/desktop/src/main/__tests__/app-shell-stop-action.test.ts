@@ -87,6 +87,43 @@ test('returns undefined when stop fails so plain-Enter send can abort', async ()
   }
 });
 
+test('treats a Host no-op stop as failed when expectedTurnId is pinned', async () => {
+  const target = globalThis as unknown as { window?: unknown };
+  const previousWindow = target.window;
+  const stopped: Array<{ sessionId: string; options: unknown }> = [];
+  target.window = {
+    maka: {
+      sessions: {
+        stop: async (sessionId: string, options?: unknown) => {
+          stopped.push({ sessionId, options });
+          // Host returns undefined when expectedTurnId no longer matches the
+          // live root (settled or replaced by a newer turn).
+          return undefined;
+        },
+      },
+    },
+  };
+  try {
+    const stop = createAppShellStopAction({
+      uiLocale: 'en',
+      activeIdRef: { current: 'session-1' },
+      stopPending: { claim: () => true, release: () => undefined },
+      removeTransientMessage: () => undefined,
+      toastApi: { error() {} },
+    });
+
+    assert.equal(await stop('session-1', 'turn-a'), false);
+    assert.deepEqual(stopped, [
+      {
+        sessionId: 'session-1',
+        options: { source: 'stop_button', expectedTurnId: 'turn-a' },
+      },
+    ]);
+  } finally {
+    target.window = previousWindow;
+  }
+});
+
 test('stops the captured Session when the active id changes during the await', async () => {
   const target = globalThis as unknown as { window?: unknown };
   const previousWindow = target.window;

@@ -45,7 +45,13 @@ export function createAppShellStopAction(deps: {
       });
       if (result?.kind === 'interrupted') {
         for (const id of result.retractedMessageIds) removeTransientMessage(sessionId, id);
+        return true;
       }
+      // Enter pins expectedTurnId. Host returns undefined when that turn has
+      // already settled or been replaced — treat it as a failed interrupt so
+      // interruptBeforeRootSend does not admit a root send over a newer live
+      // turn (#4083 review).
+      if (expectedTurnId) return false;
       return true;
     } catch (error) {
       // Composer Stop / Escape call onStop without awaiting; toast so a failed

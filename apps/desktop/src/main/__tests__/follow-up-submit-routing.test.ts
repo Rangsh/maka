@@ -19,6 +19,7 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
+import { createAppShellStopAction } from '../../renderer/app-shell-stop-action.js';
 import {
   hasActiveTurnAtSubmit,
   interruptBeforeRootSend,
@@ -129,6 +130,39 @@ describe('follow-up submit routing', () => {
     assert.deepEqual(stopped, [{ sessionId: 'session-a', expectedTurnId: 'turn-1' }]);
     assert.equal(errors.length, 1);
     assert.match(errors[0]?.title ?? '', /not sent/i);
+  });
+
+  it('blocks root send when Host stop no-ops for the pinned turn (settlement race)', async () => {
+    const target = globalThis as unknown as { window?: unknown };
+    const previousWindow = target.window;
+    target.window = {
+      maka: {
+        sessions: {
+          // expectedTurnId no longer matches — Host returns undefined.
+          stop: async () => undefined,
+        },
+      },
+    };
+    try {
+      const stop = createAppShellStopAction({
+        uiLocale: 'en',
+        activeIdRef: { current: 'session-a' },
+        stopPending: { claim: () => true, release: () => undefined },
+        removeTransientMessage: () => undefined,
+        toastApi: { error() {} },
+      });
+      const rootSendAllowed = await interruptBeforeRootSend({
+        sessionId: 'session-a',
+        slashCommand: undefined,
+        liveTurns: [{ turnId: 'turn-a' }],
+        runningTurnIds: [],
+        activeSessionId: () => 'session-a',
+        stop,
+      });
+      assert.equal(rootSendAllowed, false);
+    } finally {
+      target.window = previousWindow;
+    }
   });
 
   it('pins stop to a running Host turn when the live buffer only retains terminals', async () => {
