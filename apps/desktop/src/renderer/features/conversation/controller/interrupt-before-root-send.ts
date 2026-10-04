@@ -49,7 +49,7 @@ export function hasActiveTurnAtSubmit(input: {
 
 /**
  * After plain-Enter interrupts a live turn, the root send must still target the
- * Session that was submitted. `sessions.stop` awaits terminal settlement, so the
+ * Session that was submitted. The Host stop awaits terminal settlement, so the
  * user can navigate away while that await is open — refuse the send rather than
  * delivering the draft to whichever Session is active afterward (#4083 review).
  */

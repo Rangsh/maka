@@ -154,7 +154,6 @@ export {
   interruptBeforeRootSend,
   resolveExpectedTurnIdForInterrupt,
   shouldContinueRootSendAfterInterrupt,
-  type LiveTurnAtSubmit,
 } from './controller/interrupt-before-root-send.js';
 export { createChatActions } from './controller/chat-actions.js';
 export {
