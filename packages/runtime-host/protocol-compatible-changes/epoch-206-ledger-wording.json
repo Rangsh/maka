@@ -1,5 +1,0 @@
-{
-  "epoch": 206,
-  "files": ["packages/runtime-host/src/protocol/index.ts"],
-  "reason": "Rewords the epoch 206 ledger comment to record that 205 is reserved by #5709 instead of saying an open PR claims it. Comment-only: RUNTIME_HOST_COMPATIBILITY_EPOCH, every export, codec and message shape are unchanged, so no peer can observe it."
-}
