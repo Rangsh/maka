@@ -23,6 +23,7 @@
  * construction and cross-turn routing remain in AiSdkBackend.
  */
 
+import { createHash } from 'node:crypto';
 import type {
   AbortEvent,
   CompleteEvent,
@@ -599,6 +600,14 @@ const CONTEXT_RECOVERY_MAX_OUTPUT_TOKENS = 8_000;
  */
 const MAX_CONSECUTIVE_IDENTICAL_EMPTY_STEPS = 3;
 const EMPTY_STEP_SIGNATURE_WINDOW = 6;
+/** Skip the empty-step bound when a tool batch is too large to hash cheaply. */
+const EMPTY_STEP_SIGNATURE_MAX_CHARS = 64 * 1024;
+
+function hashEmptyStepSignature(payload: unknown): string | undefined {
+  const serialized = JSON.stringify(payload);
+  if (serialized.length > EMPTY_STEP_SIGNATURE_MAX_CHARS) return undefined;
+  return createHash('sha256').update(serialized).digest('hex');
+}
 const PROVIDER_RETRY_BASE_DELAY_MS = 1_000;
 const PROVIDER_RETRY_MAX_DELAY_MS = 32_000;
 const PROVIDER_RETRY_JITTER_FACTOR = 0.25;
@@ -2307,7 +2316,7 @@ export class AiSdkTurn {
             !stepSawThinking &&
             returnedToolCalls.length > 0 &&
             settledToolResults !== undefined
-              ? JSON.stringify(
+              ? hashEmptyStepSignature(
                   returnedToolCalls.map(({ toolName, input }, index) => ({
                     toolName,
                     input,

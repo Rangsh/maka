@@ -138,6 +138,16 @@ export interface RevisionSendPorts<TDraft extends RevisionDraftIdentity> {
   };
 }
 
+function interruptActiveTurnSnapshot(
+  interrupt: NonNullable<RevisionSendPorts<RevisionDraftIdentity>['interrupt']>,
+  sessionId: string | undefined,
+) {
+  return {
+    liveTurns: sessionId ? interrupt.liveTurns(sessionId) : undefined,
+    runningTurnIds: sessionId ? interrupt.runningTurnIds(sessionId) : undefined,
+  };
+}
+
 export interface RevisionAwareOnSendPorts<TDraft extends RevisionDraftIdentity> extends RevisionSendPorts<TDraft> {
   setNewTaskSendPending: (pending: boolean) => void;
 }
@@ -379,15 +389,17 @@ export async function revisionAwareSend<TDraft extends RevisionDraftIdentity>(
   const quotes = staging.quotesForSend();
   // #4083: plain Enter interrupts the live turn before a new root send.
   if (ports.interrupt) {
+    const interrupt = ports.interrupt;
+    const atSubmit = interruptActiveTurnSnapshot(interrupt, sessionId);
     const allowed = await interruptBeforeRootSend({
       sessionId,
       slashCommand,
-      liveTurns: sessionId ? ports.interrupt.liveTurns(sessionId) : undefined,
-      runningTurnIds: sessionId ? ports.interrupt.runningTurnIds(sessionId) : undefined,
-      activeSessionId: ports.interrupt.activeSessionId,
-      stop: ports.interrupt.stop,
-      toastApi: ports.interrupt.toastApi,
-      uiLocale: ports.interrupt.uiLocale,
+      ...atSubmit,
+      refreshActiveTurn: () => interruptActiveTurnSnapshot(interrupt, sessionId),
+      activeSessionId: interrupt.activeSessionId,
+      stop: interrupt.stop,
+      toastApi: interrupt.toastApi,
+      uiLocale: interrupt.uiLocale,
     });
     if (!allowed) return false;
   }

@@ -247,6 +247,12 @@ describe('Runtime Host bootstrap protocol', () => {
     assert.ok(RUNTIME_HOST_COMPATIBILITY_EPOCH > 192);
   });
 
+  test('publishes a new compatibility epoch for empty_step_loop system notes', () => {
+    // Epoch 204 peers reject the unknown `empty_step_loop` system_note kind when
+    // decoding Session transcripts after the Runtime empty-assistant-loop bound.
+    assert.ok(RUNTIME_HOST_COMPATIBILITY_EPOCH > 204);
+  });
+
   test('publishes a new compatibility epoch for the project registration preference', () => {
     // Epoch 46 Hosts reject the optional preference field on the closed register
     // input, so mixed-version peers must fail during the handshake instead.
@@ -446,6 +452,20 @@ describe('Runtime Host bootstrap protocol', () => {
 
   test('publishes a new compatibility epoch for catalog model-facts provenance', () => {
     assert.ok(RUNTIME_HOST_COMPATIBILITY_EPOCH > 79);
+  });
+
+  test('decodes optional executor catalog refresh without weakening exact keys', () => {
+    const decode = HOST_OPERATION_SPECS['plugin.executor.query'].decodeInput;
+    const catalogQuery = { kind: 'catalog', cwd: '/workspace' } as const;
+
+    assert.deepEqual(decode(catalogQuery), catalogQuery);
+    assert.deepEqual(decode({ ...catalogQuery, refresh: false }), catalogQuery);
+    assert.deepEqual(decode({ ...catalogQuery, refresh: true }), {
+      ...catalogQuery,
+      refresh: true,
+    });
+    assert.throws(() => decode({ ...catalogQuery, refresh: 'true' }), isInvalidFrame);
+    assert.throws(() => decode({ ...catalogQuery, unknown: true }), isInvalidFrame);
   });
 
   test('publishes a new compatibility epoch for the optional conversation-copy sourceTurnId', () => {

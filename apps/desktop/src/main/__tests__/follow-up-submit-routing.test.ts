@@ -19,14 +19,15 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { createAppShellStopAction } from '../../renderer/app-shell-stop-action.js';
 import {
+  createStopAction,
   hasActiveTurnAtSubmit,
   interruptBeforeRootSend,
+  mergeWorkspaceReferences,
   resolveExpectedTurnIdForInterrupt,
   shouldContinueRootSendAfterInterrupt,
-} from '../../renderer/features/conversation/index.js';
-import { mergeWorkspaceReferences } from '../../renderer/follow-up-submit-routing.js';
+} from '../../renderer/features/conversation/testing.js';
+import { windowSubmissionServices } from './app-shell-chat-actions-fixture.js';
 
 describe('follow-up submit routing', () => {
   it('uses the synchronous turn arm before React publishes streaming state', () => {
@@ -132,9 +133,10 @@ describe('follow-up submit routing', () => {
     assert.match(errors[0]?.title ?? '', /not sent/i);
   });
 
-  it('blocks root send when Host stop no-ops for the pinned turn (settlement race)', async () => {
+  it('blocks root send when Host stop no-ops and a turn is still active', async () => {
     const target = globalThis as unknown as { window?: unknown };
     const previousWindow = target.window;
+    const errors: Array<{ title: string; description?: string }> = [];
     target.window = {
       maka: {
         sessions: {
@@ -144,7 +146,8 @@ describe('follow-up submit routing', () => {
       },
     };
     try {
-      const stop = createAppShellStopAction({
+      const stop = createStopAction({
+        services: windowSubmissionServices(),
         uiLocale: 'en',
         activeIdRef: { current: 'session-a' },
         stopPending: { claim: () => true, release: () => undefined },
@@ -156,13 +159,43 @@ describe('follow-up submit routing', () => {
         slashCommand: undefined,
         liveTurns: [{ turnId: 'turn-a' }],
         runningTurnIds: [],
+        refreshActiveTurn: () => ({
+          liveTurns: [{ turnId: 'turn-b' }],
+          runningTurnIds: ['turn-b'],
+        }),
         activeSessionId: () => 'session-a',
         stop,
+        uiLocale: 'en',
+        toastApi: {
+          error(title, description) {
+            errors.push({ title, description });
+          },
+        },
       });
       assert.equal(rootSendAllowed, false);
+      assert.equal(errors.length, 1);
+      assert.match(errors[0]?.title ?? '', /not sent/i);
     } finally {
       target.window = previousWindow;
     }
+  });
+
+  it('admits root send when Host stop no-ops but nothing is active anymore', async () => {
+    assert.equal(
+      await interruptBeforeRootSend({
+        sessionId: 'session-a',
+        slashCommand: undefined,
+        liveTurns: [{ turnId: 'turn-a' }],
+        runningTurnIds: [],
+        refreshActiveTurn: () => ({
+          liveTurns: [{ turnId: 'turn-a', terminal: true }],
+          runningTurnIds: [],
+        }),
+        activeSessionId: () => 'session-a',
+        stop: async () => false,
+      }),
+      true,
+    );
   });
 
   it('pins stop to a running Host turn when the live buffer only retains terminals', async () => {

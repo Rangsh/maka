@@ -84,6 +84,15 @@ export async function interruptBeforeRootSend(input: {
   slashCommand: unknown;
   liveTurns?: readonly LiveTurnAtSubmit[];
   runningTurnIds?: readonly string[];
+  /**
+   * Re-read after a no-op / failed stop. When the pinned turn finished on its
+   * own, nothing is active and the root send may proceed; when another turn is
+   * running, refuse with a toast instead of dropping Enter silently (#4083).
+   */
+  refreshActiveTurn?: () => {
+    liveTurns?: readonly LiveTurnAtSubmit[];
+    runningTurnIds?: readonly string[];
+  };
   activeSessionId: () => string | undefined;
   stop: (sessionId?: string, expectedTurnId?: string) => Promise<boolean | void>;
   toastApi?: {
@@ -99,7 +108,26 @@ export async function interruptBeforeRootSend(input: {
     liveTurns: input.liveTurns,
     runningTurnIds: input.runningTurnIds,
   });
-  if (!(await input.stop(input.sessionId, expectedTurnId))) return false;
+  const stopped = await input.stop(input.sessionId, expectedTurnId);
+  if (!stopped) {
+    const refreshed = input.refreshActiveTurn?.() ?? {
+      liveTurns: input.liveTurns,
+      runningTurnIds: input.runningTurnIds,
+    };
+    if (!hasActiveTurnAtSubmit(refreshed)) {
+      // Pinned turn finished between Enter and stop settlement — admit the send.
+    } else {
+      // Still busy (or a different turn started). Keep the draft and say so.
+      if (input.toastApi && input.uiLocale) {
+        const copy = getDesktopConversationCopy(input.uiLocale).actions;
+        input.toastApi.error(
+          copy.interruptSendBlockedTitle,
+          copy.interruptSendBlockedDescription,
+        );
+      }
+      return false;
+    }
+  }
   if (
     !shouldContinueRootSendAfterInterrupt({
       submittingSessionId: input.sessionId,
