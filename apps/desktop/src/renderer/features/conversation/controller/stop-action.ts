@@ -32,6 +32,12 @@ type ToastApi = {
   ): void;
 };
 
+/**
+ * What one stop request did. `failed` has already been toasted; `busy` means a
+ * stop for the Session is in flight that this action cannot await.
+ */
+export type StopOutcome = 'interrupted' | 'not_running' | 'failed' | 'busy';
+
 export function createStopAction(deps: {
   services: Pick<ComposerSubmissionServices, 'stop'>;
   uiLocale: UiLocale;
@@ -39,7 +45,9 @@ export function createStopAction(deps: {
   stopPending: SessionPendingClaim;
   removeTransientMessage: (sessionId: string, messageId: string) => void;
   toastApi: ToastApi;
-}): (sessionId?: string, expectedTurnId?: string) => Promise<boolean | undefined> {
+  /** Stops in flight by Session. Must outlive one render so a second caller can await the first. */
+  inFlight?: Map<string, Promise<StopOutcome>>;
+}): (sessionId?: string, expectedTurnId?: string) => Promise<StopOutcome> {
   const {
     services,
     uiLocale,
@@ -47,20 +55,18 @@ export function createStopAction(deps: {
     stopPending,
     removeTransientMessage,
     toastApi,
+    inFlight = new Map<string, Promise<StopOutcome>>(),
   } = deps;
 
-  return async (sessionId = activeIdRef.current, expectedTurnId?: string) => {
-    if (!sessionId || !stopPending.claim(sessionId)) return;
+  async function stopSession(sessionId: string, expectedTurnId: string | undefined): Promise<StopOutcome> {
     try {
       const result = await services.stop(sessionId, {
         source: 'stop_button',
         ...(expectedTurnId ? { expectedTurnId } : {}),
       });
-      if (result?.kind === 'interrupted') {
-        for (const id of result.retractedMessageIds) removeTransientMessage(sessionId, id);
-      }
-      // Enter path: Host no-op must not look like a successful interrupt (#4083).
-      return result?.kind === 'interrupted';
+      if (result?.kind !== 'interrupted') return 'not_running';
+      for (const id of result.retractedMessageIds) removeTransientMessage(sessionId, id);
+      return 'interrupted';
     } catch (error) {
       // Composer Stop / Escape call onStop without awaiting; toast so a failed
       // interrupt is visible instead of an UnhandledPromiseRejection.
@@ -73,8 +79,22 @@ export function createStopAction(deps: {
           { sessionId },
         );
       }
+      return 'failed';
     } finally {
       stopPending.release(sessionId);
     }
+  }
+
+  return async (sessionId = activeIdRef.current, expectedTurnId?: string) => {
+    if (!sessionId) return 'not_running';
+    const pending = inFlight.get(sessionId);
+    if (pending) return pending;
+    if (!stopPending.claim(sessionId)) return 'busy';
+    const stopping = stopSession(sessionId, expectedTurnId);
+    inFlight.set(sessionId, stopping);
+    void stopping.finally(() => {
+      if (inFlight.get(sessionId) === stopping) inFlight.delete(sessionId);
+    });
+    return stopping;
   };
 }

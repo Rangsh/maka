@@ -30,6 +30,7 @@ import type {
 import type { PendingAttachment } from '@maka/ui/composer-attachments';
 import type { ComposerStagingSubmission } from '../model/composer-staging-contract.js';
 import { interruptBeforeRootSend } from './interrupt-before-root-send.js';
+import type { StopOutcome } from './stop-action.js';
 
 type RefBox<T> = { current: T };
 type WorkspaceFileReference = NonNullable<ComposerSendMetadata['workspaceFileReferences']>[number];
@@ -129,7 +130,7 @@ export interface RevisionSendPorts<TDraft extends RevisionDraftIdentity> {
    * doubles that only exercise revision/slash routing can omit it.
    */
   interrupt?: {
-    stop: (sessionId?: string, expectedTurnId?: string) => Promise<boolean | void>;
+    stop: (sessionId?: string, expectedTurnId?: string) => Promise<StopOutcome>;
     liveTurns: (sessionId: string) => readonly { turnId: string; terminal?: boolean }[] | undefined;
     runningTurnIds: (sessionId: string) => readonly string[] | undefined;
     activeSessionId: () => string | undefined;

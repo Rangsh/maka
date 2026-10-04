@@ -41,7 +41,7 @@ import { useConversationOwner } from '../ui/conversation-context.js';
 import { useConversationQueueCommands } from '../ui/conversation-provider.js';
 import { createChatActions } from './chat-actions.js';
 import { createRevisionAwareOnSend, createStagedFollowUp } from './composer-submit.js';
-import { createStopAction } from './stop-action.js';
+import { createStopAction, type StopOutcome } from './stop-action.js';
 import { createTurnActions } from './turn-actions.js';
 import { useTurnActionRegistry } from './use-turn-action-registry.js';
 import { useShellResume } from './use-shell-resume.js';
@@ -166,6 +166,7 @@ export function useComposerSubmission<Owner extends ComposerSurfaceOwner>(input:
   // The Composer's Stop button, Escape and a question prompt's Stop all land
   // here; the send slot may then offer Resume for the stopped Turn (#5923).
   // Built before onSend so plain-Enter interrupt can pin the same stop path.
+  const [inFlightStops] = useState(() => new Map<string, Promise<StopOutcome>>());
   const { stopSession } = useStableActions((deps: Parameters<typeof createStopAction>[0]) => ({
     stopSession: createStopAction(deps),
   }), {
@@ -175,6 +176,7 @@ export function useComposerSubmission<Owner extends ComposerSurfaceOwner>(input:
     stopPending: workspace.ui.stopPending,
     removeTransientMessage: commands.removeTransientMessage,
     toastApi,
+    inFlight: inFlightStops,
   });
   const stop = useCallback(() => {
     void stopSession();

@@ -117,7 +117,7 @@ describe('follow-up submit routing', () => {
         stop: async (sessionId, expectedTurnId) => {
           stopped.push({ sessionId: sessionId ?? '', expectedTurnId });
           activeIdRef.current = 'session-b';
-          return true;
+          return 'interrupted' as const;
         },
         uiLocale: 'en',
         toastApi: {
@@ -192,10 +192,56 @@ describe('follow-up submit routing', () => {
           runningTurnIds: [],
         }),
         activeSessionId: () => 'session-a',
-        stop: async () => false,
+        stop: async () => 'not_running' as const,
       }),
       true,
     );
+  });
+
+  it('does not add a second toast when the stop itself failed', async () => {
+    const errors: string[] = [];
+    assert.equal(
+      await interruptBeforeRootSend({
+        sessionId: 'session-a',
+        slashCommand: undefined,
+        liveTurns: [{ turnId: 'turn-a' }],
+        runningTurnIds: [],
+        refreshActiveTurn: () => ({ liveTurns: [{ turnId: 'turn-a' }], runningTurnIds: ['turn-a'] }),
+        activeSessionId: () => 'session-a',
+        stop: async () => 'failed' as const,
+        uiLocale: 'en',
+        toastApi: {
+          error(title) {
+            errors.push(title);
+          },
+        },
+      }),
+      false,
+    );
+    assert.deepEqual(errors, []);
+  });
+
+  it('reports a stop still in flight instead of a blocked send', async () => {
+    const errors: Array<{ title: string; description?: string }> = [];
+    assert.equal(
+      await interruptBeforeRootSend({
+        sessionId: 'session-a',
+        slashCommand: undefined,
+        liveTurns: [{ turnId: 'turn-a' }],
+        runningTurnIds: [],
+        activeSessionId: () => 'session-a',
+        stop: async () => 'busy' as const,
+        uiLocale: 'en',
+        toastApi: {
+          error(title, description) {
+            errors.push({ title, description });
+          },
+        },
+      }),
+      false,
+    );
+    assert.equal(errors.length, 1);
+    assert.match(errors[0]?.description ?? '', /still stopping/i);
   });
 
   it('pins stop to a running Host turn when the live buffer only retains terminals', async () => {
@@ -209,7 +255,7 @@ describe('follow-up submit routing', () => {
         activeSessionId: () => 'session-a',
         stop: async (sessionId, expectedTurnId) => {
           stopped.push({ sessionId: sessionId ?? '', expectedTurnId });
-          return true;
+          return 'interrupted' as const;
         },
       }),
       true,
