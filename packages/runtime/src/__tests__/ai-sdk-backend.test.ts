@@ -6814,6 +6814,102 @@ describe('AiSdkBackend model history', () => {
     assert.equal(events.filter((event) => event.type === 'tool_start').length, 6);
   });
 
+  test('stops an unbounded loop on an identical large tool result', async () => {
+    // A screenshot or big file read is the loop most likely to flood the
+    // transcript, so its size must not exempt it from the bound (#4083 review).
+    const loop = countingToolLoopModel(undefined, true);
+    const largeResult = { ok: true, content: 'x'.repeat(256 * 1024) };
+    const largeTool: MakaTool = {
+      name: 'Read',
+      description: 'Read description',
+      parameters: z.object({ path: z.string() }),
+      impl: async () => largeResult,
+    };
+    const durable = durableTurnHarness('turn-empty-large-loop', 'keep going');
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => loop.model,
+      tools: [largeTool],
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events = await drainDurably(backend.send(durable.input()), durable);
+    assert.equal(loop.callCount(), 3);
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'empty_step_loop');
+  });
+
+  test('does not trip the empty-step cap when a large result changes only at its end', async () => {
+    let calls = 0;
+    let resultN = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        calls += 1;
+        const chunks: LanguageModelV4StreamPart[] =
+          calls > 6
+            ? [
+                { type: 'stream-start', warnings: [] },
+                { type: 'text-start', id: 'text-final' },
+                { type: 'text-delta', id: 'text-final', delta: 'done' },
+                { type: 'text-end', id: 'text-final' },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: emptyUsage(),
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: `tool-${calls}`,
+                  toolName: 'Read',
+                  input: JSON.stringify({ path: 'notes.md' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: emptyUsage(),
+                },
+              ];
+        return {
+          stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        };
+      },
+    });
+    const prefix = 'x'.repeat(256 * 1024);
+    const progressingTool: MakaTool = {
+      name: 'Read',
+      description: 'Read description',
+      parameters: z.object({ path: z.string() }),
+      impl: async () => ({ ok: true, content: `${prefix}${++resultN}` }),
+    };
+    const durable = durableTurnHarness('turn-empty-large-progress', 'keep going');
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => model,
+      tools: [progressingTool],
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events = await drainDurably(backend.send(durable.input()), durable);
+    assert.equal(calls, 7);
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'end_turn');
+  });
+
   for (const decision of ['cancel', 'commit', 'stop'] as const) {
     test(`cooperative handoff ${decision} waits for the settled tool and gates the next request`, {
       timeout: 5_000,

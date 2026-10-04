@@ -23,7 +23,7 @@
  * construction and cross-turn routing remain in AiSdkBackend.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, type Hash } from 'node:crypto';
 import type {
   AbortEvent,
   CompleteEvent,
@@ -600,13 +600,66 @@ const CONTEXT_RECOVERY_MAX_OUTPUT_TOKENS = 8_000;
  */
 const MAX_CONSECUTIVE_IDENTICAL_EMPTY_STEPS = 3;
 const EMPTY_STEP_SIGNATURE_WINDOW = 6;
-/** Skip the empty-step bound when a tool batch is too large to hash cheaply. */
-const EMPTY_STEP_SIGNATURE_MAX_CHARS = 64 * 1024;
+/**
+ * Digest of a textless step's tool batch. Values are fed to the hash piece by
+ * piece, so a large result (a screenshot, a big file read) is never copied into
+ * one serialized string, and no size cap lets a loop on it escape the bound.
+ * Follows JSON's view of the value: `toJSON` applies and undefined properties
+ * are absent.
+ */
+function hashEmptyStepSignature(payload: unknown): string {
+  const hash = createHash('sha256');
+  updateEmptyStepDigest(hash, payload, new WeakSet());
+  return hash.digest('hex');
+}
 
-function hashEmptyStepSignature(payload: unknown): string | undefined {
-  const serialized = JSON.stringify(payload);
-  if (serialized.length > EMPTY_STEP_SIGNATURE_MAX_CHARS) return undefined;
-  return createHash('sha256').update(serialized).digest('hex');
+function updateEmptyStepDigest(hash: Hash, value: unknown, ancestors: WeakSet<object>): void {
+  if (value === null || value === undefined) {
+    hash.update('n;');
+    return;
+  }
+  if (typeof value === 'string') {
+    hash.update(`s${value.length}:`);
+    hash.update(value);
+    return;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    hash.update(`${typeof value}:${String(value)};`);
+    return;
+  }
+  if (typeof value !== 'object') {
+    hash.update('n;');
+    return;
+  }
+  if (ArrayBuffer.isView(value)) {
+    hash.update(`b${value.byteLength}:`);
+    hash.update(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+    return;
+  }
+  const toJSON = (value as { toJSON?: unknown }).toJSON;
+  if (typeof toJSON === 'function') {
+    updateEmptyStepDigest(hash, toJSON.call(value), ancestors);
+    return;
+  }
+  if (ancestors.has(value)) {
+    hash.update('c;');
+    return;
+  }
+  ancestors.add(value);
+  if (Array.isArray(value)) {
+    hash.update(`a${value.length}[`);
+    for (const item of value) updateEmptyStepDigest(hash, item, ancestors);
+    hash.update(']');
+  } else {
+    const entries = Object.entries(value).filter(([, entry]) => entry !== undefined);
+    hash.update(`o${entries.length}{`);
+    for (const [key, entry] of entries) {
+      updateEmptyStepDigest(hash, key, ancestors);
+      updateEmptyStepDigest(hash, entry, ancestors);
+    }
+    hash.update('}');
+  }
+  ancestors.delete(value);
 }
 const PROVIDER_RETRY_BASE_DELAY_MS = 1_000;
 const PROVIDER_RETRY_MAX_DELAY_MS = 32_000;
