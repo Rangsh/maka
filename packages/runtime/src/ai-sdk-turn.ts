@@ -23,6 +23,7 @@
  * construction and cross-turn routing remain in AiSdkBackend.
  */
 
+import { createHash, type Hash } from 'node:crypto';
 import type {
   AbortEvent,
   CompleteEvent,
@@ -585,13 +586,6 @@ const MAX_WAITING_CODE_MODE_CELLS = 1;
 
 const MAX_PROVIDER_ATTEMPTS_PER_STEP = 10;
 const CONTEXT_RECOVERY_MAX_OUTPUT_TOKENS = 8_000;
-const MAX_IDLE_WATCHDOG_RETRIES_PER_STEP = 1;
-const MAX_INCOMPLETE_STREAM_RETRIES_PER_STEP = 1;
-// A mid-stream cut after partial thinking seals one transcript fragment per
-// retry. A gateway that systematically kills long thinking streams (the
-// 2026-08-28 incident shape) would otherwise spend the full attempt budget
-// accumulating fragments before failing anyway, so fail fast after one.
-const MAX_SEALED_THINKING_RETRIES_PER_STEP = 1;
 /**
  * Desktop interactive turns often omit `maxSteps`, so a model that keeps
  * emitting textless tool-only steps can loop forever and flood the transcript
@@ -600,11 +594,76 @@ const MAX_SEALED_THINKING_RETRIES_PER_STEP = 1;
  *
  * Identical consecutive signatures still trip after three repeats. Alternating
  * textless signatures (A B A B …) bypass a consecutive-only counter, so the
- * recent window also stops when it fills with fewer distinct signatures than
- * steps — i.e. the window shows no distinct progress.
+ * recent window also stops when at most half its signatures are distinct — i.e.
+ * the window is cycling rather than merely containing one benign repeat among
+ * otherwise new work.
  */
 const MAX_CONSECUTIVE_IDENTICAL_EMPTY_STEPS = 3;
 const EMPTY_STEP_SIGNATURE_WINDOW = 6;
+/**
+ * Digest of a textless step's tool batch, covering both each call's arguments
+ * and its settled result. Results are part of the signature so a repeated call
+ * whose result changes (polling a job, re-reading an edited file) reads as
+ * progress instead of a loop. Values are fed to the hash piece by piece, so a
+ * large result (a screenshot, a big file read) is never copied into one
+ * serialized string, and no size cap lets a loop on it escape the bound.
+ * Follows JSON's view of the value: `toJSON` applies and undefined properties
+ * are absent.
+ */
+function hashEmptyStepSignature(payload: unknown): string {
+  const hash = createHash('sha256');
+  updateEmptyStepDigest(hash, payload, new WeakSet());
+  return hash.digest('hex');
+}
+
+function updateEmptyStepDigest(hash: Hash, value: unknown, ancestors: WeakSet<object>): void {
+  if (value === null || value === undefined) {
+    hash.update('n;');
+    return;
+  }
+  if (typeof value === 'string') {
+    hash.update(`s${value.length}:`);
+    hash.update(value);
+    return;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    hash.update(`${typeof value}:${String(value)};`);
+    return;
+  }
+  if (typeof value !== 'object') {
+    hash.update('n;');
+    return;
+  }
+  if (ArrayBuffer.isView(value)) {
+    hash.update(`b${value.byteLength}:`);
+    hash.update(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+    return;
+  }
+  const toJSON = (value as { toJSON?: unknown }).toJSON;
+  if (typeof toJSON === 'function') {
+    updateEmptyStepDigest(hash, toJSON.call(value), ancestors);
+    return;
+  }
+  if (ancestors.has(value)) {
+    hash.update('c;');
+    return;
+  }
+  ancestors.add(value);
+  if (Array.isArray(value)) {
+    hash.update(`a${value.length}[`);
+    for (const item of value) updateEmptyStepDigest(hash, item, ancestors);
+    hash.update(']');
+  } else {
+    const entries = Object.entries(value).filter(([, entry]) => entry !== undefined);
+    hash.update(`o${entries.length}{`);
+    for (const [key, entry] of entries) {
+      updateEmptyStepDigest(hash, key, ancestors);
+      updateEmptyStepDigest(hash, entry, ancestors);
+    }
+    hash.update('}');
+  }
+  ancestors.delete(value);
+}
 const PROVIDER_RETRY_BASE_DELAY_MS = 1_000;
 const PROVIDER_RETRY_MAX_DELAY_MS = 32_000;
 const PROVIDER_RETRY_JITTER_FACTOR = 0.25;
@@ -1542,7 +1601,16 @@ export class AiSdkTurn {
           capacityProviderTools.splice(0, capacityProviderTools.length, ...providerTools);
           let stepSawVisibleText = false;
           let stepSawThinking = false;
+          let settledToolResults: unknown[] | undefined;
+          // A mid-loop steer is user progress even when the next model step
+          // repeats the same textless tool result. Reset before the signature
+          // check so a mid-loop steer cannot be charged as the third identical
+          // empty step (#4083 review).
+          const injectedBeforeDrain = this.injectedSteeringMessages.length;
           await this.drainSteeringInto(input, queue);
+          if (this.injectedSteeringMessages.length > injectedBeforeDrain) {
+            clearEmptyStepProgress();
+          }
           if (this.deps.backend.loadTurnRuntimeEvents) {
             requestMessages = await loadDurableTurnProjection();
           } else {
@@ -2302,6 +2370,11 @@ export class AiSdkTurn {
                 this.handleAgentGraphYieldToolResult(settlement.result);
               }
             });
+            // Only the results are kept, and only until this step's empty-step
+            // signature is taken below (#4083).
+            settledToolResults = settlementOutcomes.map((outcome) =>
+              outcome.status === 'fulfilled' ? outcome.value.result : null,
+            );
             // Continuation reads durable events, not raw results. Do not retain
             // an entire completed batch across the next provider request.
             settlementOutcomes.length = 0;
@@ -2331,10 +2404,18 @@ export class AiSdkTurn {
             ...(providerStepUsage ? { usage: providerStepUsage } : {}),
           });
           lastCompletedStepHadToolResult = returnedToolCalls.length > 0;
+          const stepResults = settledToolResults;
           const emptyStepSignature =
-            !stepSawVisibleText && !stepSawThinking && returnedToolCalls.length > 0
-              ? JSON.stringify(
-                  returnedToolCalls.map(({ toolName, input }) => ({ toolName, input })),
+            !stepSawVisibleText &&
+            !stepSawThinking &&
+            returnedToolCalls.length > 0 &&
+            stepResults !== undefined
+              ? hashEmptyStepSignature(
+                  returnedToolCalls.map(({ toolName, input }, index) => ({
+                    toolName,
+                    input,
+                    result: stepResults[index] ?? null,
+                  })),
                 )
               : undefined;
           if (
@@ -2351,9 +2432,12 @@ export class AiSdkTurn {
             if (recentEmptyStepSignatures.length > EMPTY_STEP_SIGNATURE_WINDOW) {
               recentEmptyStepSignatures.shift();
             }
+            const distinctEmptySignatures = new Set(recentEmptyStepSignatures).size;
+            // Require a short cycle (≤ half distinct), not merely one duplicate
+            // among otherwise progressing textless steps.
             const windowHasNoDistinctProgress =
               recentEmptyStepSignatures.length >= EMPTY_STEP_SIGNATURE_WINDOW &&
-              new Set(recentEmptyStepSignatures).size < recentEmptyStepSignatures.length;
+              distinctEmptySignatures * 2 <= recentEmptyStepSignatures.length;
             if (
               consecutiveIdenticalEmptySteps >= MAX_CONSECUTIVE_IDENTICAL_EMPTY_STEPS ||
               windowHasNoDistinctProgress
@@ -2452,9 +2536,6 @@ export class AiSdkTurn {
               !this.loopStopRequested &&
               !this.aborted
             ) {
-              // A redirected prompt deserves a fresh empty-step streak; otherwise
-              // a prior empty run would stop the turn before the steer can land.
-              clearEmptyStepProgress();
               await queue.waitUntilConsumedThroughCurrent();
               if (
                 (await input.handoffBoundary?.(

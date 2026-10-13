@@ -6641,6 +6641,123 @@ describe('AiSdkBackend model history', () => {
     );
   });
 
+  test('does not count ordinary progressing textless tool steps toward the empty-step cap', async () => {
+    // #4083 review P2: the window rule must not false-trigger on legitimate
+    // tool-only work where each step makes new progress. Six textless Read
+    // steps whose paths vary (a, b, c, a, d, e) then a real answer must end
+    // with end_turn — the pre-#4083 behaviour — not stop at the bound.
+    const paths = ['a.md', 'b.md', 'c.md', 'a.md', 'd.md', 'e.md'];
+    let calls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        const call = calls;
+        calls += 1;
+        const path = paths[call];
+        const chunks: LanguageModelV4StreamPart[] =
+          path === undefined
+            ? [
+                { type: 'stream-start', warnings: [] },
+                { type: 'text-start', id: 'text-final' },
+                { type: 'text-delta', id: 'text-final', delta: 'all done' },
+                { type: 'text-end', id: 'text-final' },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: emptyUsage(),
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: `tool-${call + 1}`,
+                  toolName: 'Read',
+                  input: JSON.stringify({ path }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: emptyUsage(),
+                },
+              ];
+        return {
+          stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        };
+      },
+    });
+    const durable = durableTurnHarness('turn-empty-distinct-progress', 'keep going');
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events = await drainDurably(backend.send(durable.input()), durable);
+    assert.equal(calls, 7);
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'end_turn');
+    assert.equal(events.filter((event) => event.type === 'tool_start').length, 6);
+  });
+
+  test('a mid-loop steer resets the empty-step streak so the next textless step is not charged against it', async () => {
+    // #4083 review P3: a steer injected between tool steps is user progress.
+    // The two identical textless steps before it must not combine with the one
+    // after it into the third consecutive repeat that stops the turn; without
+    // the reset the bound fires right after consuming the steer.
+    const loop = countingToolLoopModel(3, true);
+    const durable = durableTurnHarness('turn-empty-steer-reset', 'keep going');
+    let steered = false;
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => loop.model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events = await drainDurably(
+      backend.send(
+        durable.input({
+          pullSteering: async () => {
+            // Only after two textless tool steps have already run, so the
+            // steer lands between the second and the third.
+            if (steered || loop.callCount() < 2) return [];
+            steered = true;
+            return [
+              {
+                id: 'lease-steer',
+                messageId: 'message-steer',
+                content: { text: 'STEER_SENTINEL' },
+              },
+            ];
+          },
+        }),
+      ),
+      durable,
+    );
+
+    // Three textless tool steps then the answer: the count never reaches the
+    // three-consecutive cap because the steer reset it in between.
+    assert.equal(events.filter((event) => event.type === 'tool_start').length, 3);
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'end_turn');
+    assert.equal(events.filter((event) => event.type === 'steering_message').length, 1);
+    // The steer really reached the model rather than being dropped.
+    assert.match(JSON.stringify(loop.model.doStreamCalls.at(-1)?.prompt), /STEER_SENTINEL/);
+  });
+
   for (const decision of ['cancel', 'commit', 'stop'] as const) {
     test(`cooperative handoff ${decision} waits for the settled tool and gates the next request`, {
       timeout: 5_000,

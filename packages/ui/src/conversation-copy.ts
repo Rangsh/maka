@@ -788,7 +788,7 @@ const conversationCopyEn: ConversationCopy = {
         contextUsageCompacted:
           'Context has been compacted. Usage will update when the next request completes.',
         contextUsageOpen: 'Open usage trace',
-        stepLimit: 'Reached the configured step limit. The task may be incomplete. Send “continue” to resume.',
+        stepLimit: 'Reached the tool-step limit. The task may be incomplete. Send “continue” to resume.',
       },
     },
     chat: {
