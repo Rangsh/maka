@@ -541,7 +541,7 @@ const conversationCopyZhCn: ConversationCopy = {
         contextUsageUnavailable: '暂无上下文用量数据',
         contextUsageCompacted: '上下文已压缩，用量将在下一次请求完成后更新。',
         contextUsageOpen: '打开用量追踪',
-        stepLimit: '已达到本轮工具步骤上限，任务可能尚未完成。发送“继续”即可接着处理。',
+        stepLimit: '已达到本轮工具步骤上限，任务可能尚未完成。',
       },
     },
     chat: {
@@ -665,7 +665,7 @@ const conversationCopyZhTw: ConversationCopy = {
         contextUsageUnavailable: '暫無上下文用量資料',
         contextUsageCompacted: '上下文已壓縮，用量將在下一次請求完成後更新。',
         contextUsageOpen: '開啟用量追蹤',
-        stepLimit: '已達到本輪工具步驟上限，任務可能尚未完成。傳送“繼續”即可接著處理。',
+        stepLimit: '已達到本輪工具步驟上限，任務可能尚未完成。',
       },
     },
     chat: {
@@ -788,7 +788,7 @@ const conversationCopyEn: ConversationCopy = {
         contextUsageCompacted:
           'Context has been compacted. Usage will update when the next request completes.',
         contextUsageOpen: 'Open usage trace',
-        stepLimit: 'Reached the tool-step limit. The task may be incomplete. Send “continue” to resume.',
+        stepLimit: 'Reached the tool-step limit. The task may be incomplete.',
       },
     },
     chat: {
